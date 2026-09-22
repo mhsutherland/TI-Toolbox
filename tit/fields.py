@@ -12,25 +12,35 @@ the frequencies differed."*  Fields at one frequency are summed **as vectors
 first**; only then do distinct carriers combine — in power for time-averaged
 quantities, and by worst-case relative phase for the peak.
 
-Which fields share a frequency is fixed by the montage, and since v2.5.0 the
-toolbox has exactly one wiring: **positional**.  ``electrode_pairs`` are taken
-two at a time, each pair driven at its own carrier frequency, so *one field is
-one carrier* and the coherent sum within a frequency is the identity.  (The
-optional Lee-2022 style ``channels`` grouping, where several pairs shared one
-carrier, was removed on ``main`` — see ``7a5ee2dd``, ``d4706e5a``,
-``b19a1c26``.  If it ever returns, the coherent pre-sum goes here.)  These
-functions therefore take the carrier fields positionally and sum them
-incoherently.
+Which fields share a frequency is a property of the montage's drive, and both
+functions accept it as an optional ``wiring`` (:mod:`tit.wiring`, built from the
+per-channel frequencies and phases).  Given one, the fields at each frequency
+are summed **as vectors first**, and only the resulting per-frequency
+amplitudes combine incoherently — the coherent pre-sum the governing rule calls
+for.
 
-``hf_peak(*fields)`` — peak carrier field.  Distinct carriers run at mutually
-incommensurate frequencies, so every relative phase combination occurs over
-time; the worst-case instantaneous magnitude is the max over sign choices,
-``max_s |sum_c s_c * E_c|`` over *carriers* ``c``.  At two carriers this is
-exactly ``max(|E1+E2|, |E1-E2|)`` (Cassarà Part I, Eq. 3, p. 11: the worst
-case is "in-phase, spatially aligned fields").
+Without a ``wiring`` the historical assumption stands: every field is taken to
+be its own carrier at its own distinct frequency (the positional model, see
+``docs/dev/DECISIONS.md``), and the fields combine incoherently exactly as they
+always have.  That path is untouched, so no existing result moves.
 
-``hf_sar(*fields)`` — heating driver, proportional to SAR.  Distinct carriers
-are incoherent, so power adds rather than amplitude: ``sum_c |E_c|^2``
+The distinction is not academic.  Two pairs driven at one frequency add or
+cancel according to their polarity, so ``+/- +/-`` and ``+/- -/+`` are
+physically different montages; without a wiring both return the same number.
+
+``hf_peak(*fields, wiring=None)`` — peak carrier field.  Distinct carriers
+run at mutually incommensurate frequencies, so every relative phase
+combination occurs over time; the worst-case instantaneous magnitude is the max
+over sign choices, ``max_s |sum_c s_c * E_c|`` over *carriers* ``c``.  At two
+carriers this is exactly ``max(|E1+E2|, |E1-E2|)`` (Cassarà Part I, Eq. 3,
+p. 11: the worst case is "in-phase, spatially aligned fields").  With a wiring
+the sign choice runs over the coherently summed frequencies rather than the raw
+fields: within one frequency the relative phase is *known*, not worst-cased.
+
+``hf_sar(*fields, wiring=None)`` — heating driver, proportional to SAR.
+Distinct carriers are incoherent, so power adds rather than amplitude:
+``sum_c |E_c|^2`` over carriers — one field per carrier without a wiring, one
+coherently summed frequency per carrier with one
 (Cassarà Part I, p. 11: "the SAR distributions from the two channels, rather
 than the E-fields themselves, must be summed"; Part II, p. 16: total power
 deposition "is equal to the summed combination from all channels (incoherent
@@ -181,7 +191,76 @@ def _hf_peak_sweep(stack: np.ndarray) -> np.ndarray:
     return out
 
 
-def hf_peak_is_exact(n_fields: int) -> bool:
+def _grouped_amplitudes(fields, wiring):
+    """Coherently pre-sum the channel fields into one amplitude per frequency.
+
+    This is the step the governing rule puts before everything else: fields at
+    one frequency are vectors at the same instant, so they add as vectors.
+
+    Returns
+    -------
+    real : np.ndarray, shape ``(G, M, 3)``
+        In-phase amplitude per frequency group.
+    imag : np.ndarray or None
+        Quadrature amplitude per group, or ``None`` when every group is
+        linearly polarised (the usual case, including every polarity-only
+        montage).
+    shape : tuple
+        The original field shape, for reshaping the result back.
+    """
+    from tit.wiring import coherent_amplitudes
+
+    amps = coherent_amplitudes(fields, wiring)
+    shape = np.asarray(fields[0], dtype=float).shape
+    real = np.stack([a.real.reshape(-1, 3) for a in amps], axis=0)
+    if all(a.imag is None for a in amps):
+        return real, None, shape
+    imag = np.stack(
+        [
+            (a.imag if a.imag is not None else np.zeros_like(a.real)).reshape(-1, 3)
+            for a in amps
+        ],
+        axis=0,
+    )
+    return real, imag, shape
+
+
+def _hf_peak_support_sweep(real: np.ndarray, imag: np.ndarray) -> np.ndarray:
+    """Worst-case peak when some carrier is elliptically polarised.
+
+    An elliptically polarised carrier sweeps an ellipse rather than a line, so
+    there is no sign to enumerate.  The reachable instantaneous sums form the
+    Minkowski sum of the carriers' ellipses, whose maximum magnitude is the
+    largest of its support values::
+
+        max_n sum_g sqrt((P_g . n)^2 + (Q_g . n)^2)
+
+    With every ``Q_g`` zero this reduces to ``max_n sum_g |E_g . n|``, the same
+    worst case the sign enumeration finds exactly -- which is why the exact
+    path is preferred whenever it applies.  Sampled directions make this a
+    lower bound; :func:`hf_peak_is_exact` reports that.
+    """
+    n, m, _ = real.shape
+    directions = _fibonacci_directions(_SWEEP_N_DIRECTIONS)
+    out = np.empty(m, dtype=float)
+    for lo in range(0, m, _CHUNK_SIZE):
+        hi = min(lo + _CHUNK_SIZE, m)
+        c = hi - lo
+        best = np.full(c, -np.inf, dtype=float)
+        for d0 in range(0, _SWEEP_N_DIRECTIONS, _SWEEP_DIR_BATCH):
+            d1 = min(d0 + _SWEEP_DIR_BATCH, _SWEEP_N_DIRECTIONS)
+            dirs_batch = directions[d0:d1]
+            support = np.zeros((c, d1 - d0), dtype=float)
+            for i in range(n):
+                proj_p = real[i, lo:hi, :] @ dirs_batch.T
+                proj_q = imag[i, lo:hi, :] @ dirs_batch.T
+                support += np.sqrt(proj_p * proj_p + proj_q * proj_q)
+            np.maximum(best, support.max(axis=1), out=best)
+        out[lo:hi] = best
+    return out
+
+
+def hf_peak_is_exact(n_fields: int | None = None, wiring=None) -> bool:
     """Is :func:`hf_peak` exact for this many carriers, or a lower bound?
 
     ``True`` up to `EXACT_SIGN_ENUM_MAX_FIELDS` carriers, where every one of
@@ -191,13 +270,28 @@ def hf_peak_is_exact(n_fields: int) -> bool:
     slightly non-conservative as a safety metric.  Callers that record or
     display ``hf_peak`` should carry this flag alongside the value.
 
-    With the positional wiring one field is one carrier, so *n_fields* is the
-    carrier count.
+    Without a wiring one field is one carrier, so *n_fields* is the carrier
+    count.  With a ``wiring`` the carriers are its frequency *groups*, and an
+    elliptically polarised group forces the direction sweep whatever the count,
+    so the answer is ``False``.
+
+    Parameters
+    ----------
+    n_fields : int, optional
+        Carrier count, when no wiring is available.
+    wiring : tit.wiring.Wiring, optional
+        Takes precedence over *n_fields*.
     """
+    if wiring is not None:
+        if not wiring.is_real:
+            return False
+        return len(wiring.groups) <= EXACT_SIGN_ENUM_MAX_FIELDS
+    if n_fields is None:
+        raise ValueError("hf_peak_is_exact needs either n_fields or a wiring.")
     return int(n_fields) <= EXACT_SIGN_ENUM_MAX_FIELDS
 
 
-def hf_peak(*fields) -> np.ndarray:
+def hf_peak(*fields, wiring=None) -> np.ndarray:
     """Peak carrier field: max over sign choices of the carrier vector sum.
 
     Each field is one carrier (positional wiring).  Carriers combine at their
@@ -217,24 +311,40 @@ def hf_peak(*fields) -> np.ndarray:
     Parameters
     ----------
     *fields : array-like, shape ``(..., 3)``
-        Two or more carrier E-field vectors (one per electrode pair), all
+        Two or more channel E-field vectors (one per electrode pair), all
         the same shape.
+    wiring : tit.wiring.Wiring, optional
+        Which channels share a frequency.  Given one, the channels at each
+        frequency are summed as vectors first and the sign choice runs over the
+        resulting per-frequency amplitudes.  Omitted, every field is taken to
+        be its own carrier -- the shipped behaviour, unchanged.
 
     Returns
     -------
     numpy.ndarray, shape ``(...,)``
         The worst-case peak carrier field magnitude.
     """
-    stack, shape = _stack_fields(fields)
-    n = stack.shape[0]
-    if n <= EXACT_SIGN_ENUM_MAX_FIELDS:
-        flat = _hf_peak_exact(stack)
+    if wiring is None:
+        stack, shape = _stack_fields(fields)
+        n = stack.shape[0]
+        if n <= EXACT_SIGN_ENUM_MAX_FIELDS:
+            flat = _hf_peak_exact(stack)
+        else:
+            flat = _hf_peak_sweep(stack)
+        return flat.reshape(shape[:-1])
+
+    _stack_fields(fields)  # same arity and shape contract as the plain path
+    real, imag, shape = _grouped_amplitudes(fields, wiring)
+    if imag is not None:
+        flat = _hf_peak_support_sweep(real, imag)
+    elif real.shape[0] <= EXACT_SIGN_ENUM_MAX_FIELDS:
+        flat = _hf_peak_exact(real)
     else:
-        flat = _hf_peak_sweep(stack)
+        flat = _hf_peak_sweep(real)
     return flat.reshape(shape[:-1])
 
 
-def hf_sar(*fields) -> np.ndarray:
+def hf_sar(*fields, wiring=None) -> np.ndarray:
     """Incoherent carrier heating driver, proportional to SAR: ``sum_c |E_c|^2``.
 
     Each field is one carrier (positional wiring), and the carriers sit at
@@ -254,14 +364,28 @@ def hf_sar(*fields) -> np.ndarray:
     Parameters
     ----------
     *fields : array-like, shape ``(..., 3)``
-        Two or more carrier E-field vectors (one per electrode pair), all
+        Two or more channel E-field vectors (one per electrode pair), all
         the same shape.
+    wiring : tit.wiring.Wiring, optional
+        Which channels share a frequency.  Given one, the channels at each
+        frequency are summed as vectors before their powers add, so two pairs
+        on one frequency contribute ``|E_a + E_b|^2`` rather than
+        ``|E_a|^2 + |E_b|^2``.  Omitted, every field is taken to be its own
+        carrier -- the shipped behaviour, unchanged.
 
     Returns
     -------
     numpy.ndarray, shape ``(...,)``
         ``sum_c |E_c|^2`` in ``(V/m)^2`` — proportional to tissue heating.
     """
-    stack, shape = _stack_fields(fields)
-    flat = np.sum(np.linalg.norm(stack, axis=-1) ** 2, axis=0)
+    if wiring is None:
+        stack, shape = _stack_fields(fields)
+        flat = np.sum(np.linalg.norm(stack, axis=-1) ** 2, axis=0)
+        return flat.reshape(shape[:-1])
+
+    _stack_fields(fields)  # same arity and shape contract as the plain path
+    real, imag, shape = _grouped_amplitudes(fields, wiring)
+    flat = np.sum(np.sum(real * real, axis=-1), axis=0)
+    if imag is not None:
+        flat = flat + np.sum(np.sum(imag * imag, axis=-1), axis=0)
     return flat.reshape(shape[:-1])

@@ -343,18 +343,23 @@ def test_envelope_and_exposure_consume_the_same_positional_field_list(n_fields):
     assert np.allclose(hf_peak(*reordered), hf_peak(*fields), rtol=0, atol=1e-12)
 
 
-def test_shared_frequency_would_need_a_coherent_presum_and_never_occurs():
-    """The regime the positional wiring rules out, measured rather than argued.
+def test_shared_frequency_needs_a_coherent_presum_and_now_has_one():
+    """The regime the positional wiring ruled out, measured rather than argued.
 
-    If two electrode pairs were driven *phase-locked at one frequency* -- the
+    If two electrode pairs are driven *phase-locked at one frequency* -- the
     Lee et al. 2022 shared-carrier design -- the true time-averaged ``|E|^2``
-    would be ``|E_a + E_b|^2 / 2``, not ``(|E_a|^2 + |E_b|^2) / 2``, and
-    ``hf_sar`` over the raw fields would understate exposure by the cross term
-    (a factor of 2 for two equal aligned fields).  That is why the metric is
-    stated over *carriers*.  Positional wiring gives every field its own
-    frequency, so the case cannot arise -- and ``Montage`` has no field with
-    which to express it.  If a future montage regains one, the coherent
-    pre-sum belongs in ``tit.fields`` and this test is the specification.
+    is ``|E_a + E_b|^2 / 2``, not ``(|E_a|^2 + |E_b|^2) / 2``, and ``hf_sar``
+    over the raw fields understates exposure by the cross term (a factor of 2
+    for two equal aligned fields).  That is why the metric is stated over
+    *carriers*.
+
+    This test was written as the specification for restoring the coherent
+    pre-sum, and that pre-sum now exists: it lives in ``tit.fields``, keyed by
+    an explicit ``wiring`` (:mod:`tit.wiring`).  What is pinned here is the
+    default -- **without** a wiring the positional reading still applies, so
+    every result computed before frequencies were expressible is reproduced
+    exactly.  The wired behaviour is pinned in
+    ``test_sci10_shared_frequency.py``.
     """
     from dataclasses import fields as dataclass_fields
 
@@ -369,13 +374,22 @@ def test_shared_frequency_would_need_a_coherent_presum_and_never_occurs():
     assert shared == pytest.approx(2.0, rel=1e-9)  # |E_a + E_b|^2 / 2 = 4/2
     assert distinct == pytest.approx(1.0, rel=1e-9)  # (1 + 1) / 2
 
-    # The toolbox computes the distinct-frequency value, which is correct for
-    # the only wiring it can express.
+    # With no wiring the toolbox computes the distinct-frequency value, which
+    # is the correct reading of an unannotated montage.
     assert float(hf_sar(*_as_rows(e_a, e_b))[0]) == pytest.approx(
         2.0 * distinct, rel=1e-12
     )
 
-    # And there is no way to declare the shared-frequency wiring.
+    # Given the wiring it computes the shared-frequency value instead.
+    from tit.wiring import derive_wiring
+
+    shared_wiring = derive_wiring([_FREQS[0], _FREQS[0]])
+    assert float(
+        hf_sar(*_as_rows(e_a, e_b), wiring=shared_wiring)[0]
+    ) == pytest.approx(2.0 * shared, rel=1e-12)
+
+    # The grouping is *derived* from frequency, never declared on the montage:
+    # the removed Lee-2022 ``channels`` field has not come back.
     assert "channels" not in {f.name for f in dataclass_fields(Montage)}
     assert "channels" not in hf_sar.__code__.co_varnames
 
