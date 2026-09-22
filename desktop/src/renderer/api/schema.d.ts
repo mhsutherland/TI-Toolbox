@@ -6697,6 +6697,16 @@ export interface components {
             tissue_conductivities: {
                 [key: string]: number;
             } | null;
+            /**
+             * Frequencies Hz
+             * @default null
+             */
+            frequencies_hz: number[] | null;
+            /**
+             * Phases Deg
+             * @default null
+             */
+            phases_deg: number[] | null;
         };
         /**
          * Montage
@@ -7334,6 +7344,16 @@ export interface components {
              * @default within_pairs
              */
             symmetry_pairing: string;
+            /**
+             * Frequencies Hz
+             * @default null
+             */
+            frequencies_hz: number[] | null;
+            /**
+             * Phases Deg
+             * @default null
+             */
+            phases_deg: number[] | null;
         };
         /**
          * MExConfig
@@ -7488,6 +7508,16 @@ export interface components {
              * @default within_pairs
              */
             symmetry_pairing: string;
+            /**
+             * Frequencies Hz
+             * @default null
+             */
+            frequencies_hz: number[] | null;
+            /**
+             * Phases Deg
+             * @default null
+             */
+            phases_deg: number[] | null;
         };
         /**
          * AnalyzerConfig

@@ -493,6 +493,36 @@
           "default": "within_pairs",
           "title": "Symmetry Pairing",
           "type": "string"
+        },
+        "frequencies_hz": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequencies Hz"
+        },
+        "phases_deg": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases Deg"
         }
       },
       "required": [
@@ -1554,6 +1584,36 @@
           "default": "within_pairs",
           "title": "Symmetry Pairing",
           "type": "string"
+        },
+        "frequencies_hz": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequencies Hz"
+        },
+        "phases_deg": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases Deg"
         }
       },
       "required": [
@@ -2769,6 +2829,36 @@
           ],
           "default": null,
           "title": "Tissue Conductivities"
+        },
+        "frequencies_hz": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequencies Hz"
+        },
+        "phases_deg": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases Deg"
         }
       },
       "required": [
