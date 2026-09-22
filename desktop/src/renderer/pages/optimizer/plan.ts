@@ -13,7 +13,8 @@ import { roiToConfig, type AtlasLookup, type RoiValue } from "../_shared/roi";
 import type { GroupKind } from "../_shared/run";
 import type { FlexConfigWire } from "./api";
 import { buildFlexConfig } from "./flexConfig";
-import { buildExConfig, buildMExConfig, exTargets, EX_BUCKET_KEYS, MEX_BUCKET_KEYS, type ExTarget } from "./exConfig";
+import { buildExConfig, buildMExConfig, exTargets, EX_BUCKET_KEYS, MEX_BUCKET_KEYS, MEX_CHANNELS, type ExTarget, type MExFormState } from "./exConfig";
+import { describeCarrierWiring } from "../_shared/carriers";
 import { OPT_METHOD_LABEL, rowJobKind, rowStage, type OptimizerRow } from "./rows";
 
 /** One planned/submitted job: which row it came from, its kind, its subject and its wire config. */
@@ -94,6 +95,43 @@ export function rowFormReason(row: OptimizerRow): string | null {
     return null;
   }
   if (MEX_BUCKET_KEYS.some((k) => (row.mex.buckets[k] ?? []).length === 0)) return "Fill in all eight electrode buckets.";
+  // A carrier assignment the server will refuse is caught here rather than after submission:
+  // `tit.wiring` is the authority and re-derives it, but there is no reason to spend a job on a
+  // wiring we can already see has no envelope to maximise.
+  return mexCarrierReason(row.mex);
+}
+
+/**
+ * Why this mEx carrier drive cannot run, or `null`.
+ *
+ * Mirrors `_validate_optimizer_drive` in `tit/opt/config.py`, which is what actually rejects these
+ * — this only moves the sentence to before the run rather than after it. A drive that is merely
+ * incomplete is *unset*, not wrong: it falls back to the positional wiring, so it is not a reason.
+ */
+export function mexCarrierReason(form: MExFormState): string | null {
+  const freqs = form.frequencies.every((f): f is number => f != null && f > 0)
+    ? (form.frequencies as number[])
+    : null;
+  if (!freqs) return null;
+  const hint = describeCarrierWiring(freqs, MEX_CHANNELS);
+  if (hint.kind === "no-modulation") {
+    return "These carrier frequencies produce no difference frequency, so every candidate would score zero. Give the channels frequencies that beat, or examine the montage in the Simulator.";
+  }
+  if (hint.kind === "unresolved") {
+    return "These carrier frequencies imply more than one difference frequency, which the modulation envelope cannot represent.";
+  }
+  if (form.phases.some((p) => p != null && Math.abs(((p % 180) + 180) % 180) > 1e-9)) {
+    // Within one carrier, a phase that is neither 0 nor 180 makes the summed field
+    // elliptically polarised, which the (P, Q) envelope is not derived for.
+    const groups = new Map<number, number[]>();
+    freqs.forEach((f, i) => groups.set(f, [...(groups.get(f) ?? []), i]));
+    for (const members of groups.values()) {
+      const phases = members.map((i) => ((((form.phases[i] ?? 0) % 180) + 180) % 180));
+      if (phases.some((p) => Math.abs(p - (phases[0] ?? 0)) > 1e-9)) {
+        return "Channels on one carrier must have phases 0 or 180 degrees apart; other offsets make the carrier elliptically polarised, which the envelope is not defined for.";
+      }
+    }
+  }
   return null;
 }
 

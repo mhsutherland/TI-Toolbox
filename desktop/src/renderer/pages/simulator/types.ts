@@ -33,6 +33,25 @@ export interface SelectedRow {
   xyzPairs?: [[number, number, number], [number, number, number]][];
   /** Per-row currents (mA), comma-separated — seeded from the row's polarity, editable. */
   currents: string;
+  /**
+   * Per-channel carrier frequency (Hz), comma-separated, one per electrode pair.
+   *
+   * Blank — the default — means *unset*, and unset is not zero: it leaves the server on the
+   * positional reading, where each pair is assumed to sit at its own distinct frequency and
+   * consecutive pairs beat. That is what every simulation run before this field existed meant,
+   * so a row that never touches it produces exactly the results it always did.
+   *
+   * Setting it is the only way to say that two pairs share a carrier — which is the only case
+   * where the electrode order within a montage changes the field (`_shared/carriers`).
+   */
+  frequencies?: string;
+  /**
+   * Per-channel drive phase (degrees), comma-separated, one per electrode pair.
+   *
+   * Only meaningful alongside `frequencies`; blank means every channel at 0°. A 180° phase is
+   * exactly a polarity reversal, so `+/- -/+` can be written either way round.
+   */
+  phases?: string;
   /** Transient: never submit the previous placement while cap assignment is in flight. */
   mappingPending?: boolean;
   /**
@@ -142,6 +161,18 @@ export function isRunnableRow(row: SelectedRow): boolean {
   if (row.mappingPending || !row.subjectId || !row.name) return false;
   if (row.source === "montage") return (row.pairs?.length ?? 0) > 0;
   return (row.pairs?.length ?? 0) > 0 || (row.xyzPairs?.length ?? 0) > 0;
+}
+
+/**
+ * Does this row carry a complete carrier drive?
+ *
+ * Partial is treated as unset: a frequency on some channels but not others has no meaning the
+ * server could act on, so the row stays on the positional reading until every channel has one.
+ */
+export function rowHasCarrierDrive(row: SelectedRow, numPairs: number): boolean {
+  const values = (row.frequencies ?? "").split(",").map((v) => v.trim());
+  if (values.length !== numPairs) return false;
+  return values.every((v) => v !== "" && Number.isFinite(Number(v)) && Number(v) > 0);
 }
 
 /** How many electrode pairs a row carries, whichever form they came in. */

@@ -183,6 +183,26 @@
   max-width: none;
 }
 
+/* Carrier frequency and phase sit inside the channel group, beside the current, so a channel's
+   whole drive reads as one thing. That makes the group wide enough to need wrapping. */
+.job-channel .number-input + .montage-unit + .number-input {
+  margin-left: 6px;
+}
+
+/* The derived wiring, in words. The case this exists for is a montage with no difference
+   frequency: TI_max is then correctly zero, and without this line a blank map reads as a bug. */
+.job-wiring-chip {
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.job-wiring-chip[data-danger] {
+  color: var(--warning, var(--ink));
+  font-weight: 500;
+}
+
 .job-line2[data-channels="2"] { flex-wrap: nowrap; overflow-x: auto; }
 .job-line2[data-channels="2"] .job-channel { flex-shrink: 0; }
 

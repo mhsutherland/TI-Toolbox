@@ -1,3 +1,4 @@
+import { parseDriveList } from "../_shared/carriers";
 import { settingsFor, type JobSettings, type SelectedRow } from "./types";
 import type { CustomConductivities } from "./ConductivityDialog";
 import type { MontageSources } from "./api";
@@ -70,6 +71,16 @@ export function buildSimulationConfig(row: SelectedRow, defaults: GlobalParams):
     map_to_mni: params.mapToMni ?? false,
     map_to_fsavg: params.mapToFsavg ?? false,
   };
+  // Carrier drive, only when the row actually set it. Omitting the keys is what leaves the server
+  // on the positional reading, so a row that never touched these runs exactly as it always did —
+  // sending nulls would mean the same thing, but omission keeps old and new payloads identical.
+  const frequencies = parseDriveList(row.frequencies);
+  if (frequencies) {
+    config.frequencies_hz = frequencies;
+    // Phases default to zero rather than being omitted: the server rejects phases without
+    // frequencies, and an explicit all-zero drive is what "no phase offsets" means.
+    config.phases_deg = parseDriveList(row.phases) ?? frequencies.map(() => 0);
+  }
   if (row.candidate) delete config.tissue_conductivities;
   if (Object.keys(params.customConductivities).length > 0) {
     config.tissue_conductivities = params.customConductivities;

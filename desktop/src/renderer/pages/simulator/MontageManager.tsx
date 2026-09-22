@@ -64,6 +64,7 @@ import {
   type MontageSource,
   type SelectedRow,
 } from "./types";
+import { describeCarrierWiring, parseDriveList } from "../_shared/carriers";
 
 export type Kind = MontageKind;
 
@@ -312,11 +313,26 @@ function ColumnHandle({ label, width, onResize }: { label: string; width: number
  * legend and its electrode markers use: "channel 2 is orange" means one thing in this table, in the
  * legend and in the pane.
  */
-function ChannelList({ row, onChange }: { row: SelectedRow; onChange: (currents: string) => void }) {
+function ChannelList({
+  row,
+  onChange,
+  onDriveChange,
+}: {
+  row: SelectedRow;
+  onChange: (currents: string) => void;
+  onDriveChange: (patch: { frequencies?: string; phases?: string }) => void;
+}) {
   const count = rowCurrentsCount(row);
   if (count === 0 || !row.name) return null;
   const values = currentValues(row.currents, count);
   const labels = channelLabels(row, count);
+  // A blank frequency cell is *unset*, not zero, and stays blank — unlike current, there is no
+  // sensible default carrier frequency to substitute, and guessing one would silently change the
+  // physics. Until every channel has one the row runs on the positional reading.
+  const freqCells = driveCells(row.frequencies, count);
+  const phaseCells = driveCells(row.phases, count);
+  const write = (cells: (number | undefined)[], i: number, next: number | undefined) =>
+    cells.map((old, idx) => (idx === i ? next : old)).map((v) => (v == null ? "" : String(v))).join(",");
   return (
     <>
       {values.map((v, i) => (
@@ -333,8 +349,26 @@ function ChannelList({ row, onChange }: { row: SelectedRow; onChange: (currents:
             aria-label={`${row.name || "row"} channel ${i + 1} current (mA)`}
           />
           <span className="montage-unit">mA</span>
+          <NumberInput
+            value={freqCells[i]}
+            onValueChange={(next) => onDriveChange({ frequencies: write(freqCells, i, next) })}
+            step={10}
+            min={0}
+            placeholder="—"
+            aria-label={`${row.name || "row"} channel ${i + 1} carrier frequency (Hz)`}
+          />
+          <span className="montage-unit">Hz</span>
+          <NumberInput
+            value={phaseCells[i]}
+            onValueChange={(next) => onDriveChange({ phases: write(phaseCells, i, next) })}
+            step={90}
+            placeholder="0"
+            aria-label={`${row.name || "row"} channel ${i + 1} phase (degrees)`}
+          />
+          <span className="montage-unit">°</span>
         </span>
       ))}
+      <CarrierWiringChip row={row} count={count} />
     </>
   );
 }
@@ -347,6 +381,48 @@ export function channelLabels(row: SelectedRow, count: number): string[] {
     if (row.xyzPairs?.[i]) return "XYZ";
     return "—";
   });
+}
+
+/** One row's drive string as per-channel cells; `undefined` where the user left it blank. */
+function driveCells(raw: string | undefined, count: number): (number | undefined)[] {
+  const parts = (raw ?? "").split(",");
+  return Array.from({ length: count }, (_, i) => {
+    const cell = parts[i]?.trim();
+    if (!cell) return undefined;
+    const value = Number(cell);
+    return Number.isFinite(value) ? value : undefined;
+  });
+}
+
+/**
+ * What the frequencies the user typed actually imply, in words.
+ *
+ * The case this exists for is a montage with no difference frequency: its `TI_max` map is
+ * physically, correctly zero, and without a line saying so a blank result reads as a broken run.
+ * `tit/wiring.py` is the authority and the server re-derives and rejects; this only has to make
+ * the consequence visible *before* the job is submitted.
+ */
+function CarrierWiringChip({ row, count }: { row: SelectedRow; count: number }) {
+  const hint = describeCarrierWiring(parseDriveList(row.frequencies), count);
+  if (hint.kind === "positional") return null;
+  const danger = hint.kind === "no-modulation" || hint.kind === "unresolved";
+  return (
+    <span
+      className="job-wiring-chip"
+      data-cell="wiring"
+      data-kind={hint.kind}
+      data-danger={danger ? "" : undefined}
+      title={
+        hint.kind === "no-modulation"
+          ? "No difference frequency, so there is no beat: TI_max will be zero everywhere. Select hf_peak or hf_sar to see the carrier field."
+          : hint.kind === "unresolved"
+            ? "These frequencies imply more than one difference frequency. The server will reject this wiring."
+            : "Derived carrier wiring for these frequencies."
+      }
+    >
+      {hint.summary}
+    </span>
+  );
 }
 
 /**
@@ -1155,7 +1231,11 @@ export function JobsTable({
                           </td>
                           <td colSpan={2} data-cell="detail">
                             <div className="job-line2" data-cell="pairs" data-channels={rowPairCount(row)}>
-                              <ChannelList row={row} onChange={(currents) => patch(row.id, { currents })} />
+                              <ChannelList
+                                row={row}
+                                onChange={(currents) => patch(row.id, { currents })}
+                                onDriveChange={(drive) => patch(row.id, drive)}
+                              />
                             </div>
                           </td>
                         </>

@@ -52,6 +52,25 @@ export const MTI_SYMMETRY_HELP =
   "Within each pair: each pair's own +/- electrodes mirror across the midline.\n" +
   "Cross pairs: additionally requires pair 1<->3 and pair 2<->4 to mirror each other.";
 
+export const EX_CARRIER_HELP =
+  "Ex-search takes the two channels to sit at two distinct carrier frequencies — the standard TI " +
+  "arrangement, e.g. 2.000 and 2.010 kHz.\n\n" +
+  "There is nothing to set here, because the ranking does not depend on what those frequencies " +
+  "are. A two-channel envelope is phase-invariant: its modulation depth follows from the two " +
+  "field amplitudes and the angle between them, not from the carrier values.\n\n" +
+  "Two channels on the *same* frequency do not beat at all, so there would be no envelope to " +
+  "maximise. Examine that case in the Simulator, where the carrier field (hf_peak / hf_sar) is " +
+  "reported. Per-channel frequencies are configurable for mTI searches, which have two carriers.";
+
+export const MEX_CARRIER_HELP =
+  "One carrier frequency per bipolar pair. Leave them blank to keep the positional wiring: each " +
+  "pair on its own carrier, pairs 1&2 beating and pairs 3&4 beating.\n\n" +
+  "Setting them lets you express wirings the positional model cannot — notably two pairs sharing " +
+  "each carrier (2000, 2000, 2010, 2010), where the two fields on one frequency add as vectors " +
+  "and the electrode order within those pairs starts to matter.\n\n" +
+  "Phase is the drive phase of each source; 180 degrees is exactly a polarity reversal. Unlike " +
+  "Ex, this changes the result: with two carriers the envelope phase enters the modulation depth.";
+
 export interface ExFormState {
   electrodeMode: "bucketed" | "all";
   buckets: Record<string, string[]>;
@@ -66,6 +85,20 @@ export interface MExFormState {
   currentMa: number;
   symmetricBucket: boolean;
   symmetryPairing: "within_pairs" | "cross_pairs";
+  /**
+   * Per-channel carrier frequency (Hz), one per bipolar pair; `null` is *unset*, not zero.
+   *
+   * All four unset — the default — leaves the server on the positional wiring: each pair at its
+   * own distinct frequency, consecutive pairs beating. That is what every mEx run before this
+   * field meant, so an untouched form ranks candidates exactly as it always did.
+   *
+   * Setting them is the only way to express a wiring the positional model cannot, notably two
+   * pairs sharing each carrier (`[2000, 2000, 2010, 2010]`). Unlike Ex, this genuinely changes the
+   * objective: mEx is two carriers, where the envelope phase enters `Q` (`tit/calc.py`).
+   */
+  frequencies: (number | null)[];
+  /** Per-channel drive phase (degrees); `null` means 0. 180 is a polarity reversal. */
+  phases: (number | null)[];
 }
 
 export function defaultExFormState(): ExFormState {
@@ -85,6 +118,31 @@ export function defaultMExFormState(): MExFormState {
     currentMa: 2.0,
     symmetricBucket: false,
     symmetryPairing: "within_pairs",
+    frequencies: [null, null, null, null],
+    phases: [null, null, null, null],
+  };
+}
+/** How many bipolar pairs an mEx search drives — four, one per `e{n}_plus`/`e{n}_minus` bucket. */
+export const MEX_CHANNELS = 4;
+
+/**
+ * The drive to send for this form, or nulls.
+ *
+ * A *partial* drive is treated as unset, the same rule the Simulator applies: a frequency on some
+ * channels and not others has no meaning the server could act on. Phases are zero-filled rather
+ * than sent alone, because the server rejects `phases_deg` without `frequencies_hz`.
+ */
+export function mexCarrierDrive(form: MExFormState): {
+  frequencies_hz: number[] | null;
+  phases_deg: number[] | null;
+} {
+  const complete =
+    form.frequencies.length === MEX_CHANNELS &&
+    form.frequencies.every((f): f is number => f != null && Number.isFinite(f) && f > 0);
+  if (!complete) return { frequencies_hz: null, phases_deg: null };
+  return {
+    frequencies_hz: form.frequencies as number[],
+    phases_deg: Array.from({ length: MEX_CHANNELS }, (_, i) => form.phases[i] ?? 0),
   };
 }
 
@@ -178,6 +236,12 @@ export function buildExConfig(
     roi_coordinate_space: target.space,
     run_name: runName.trim() || null,
     n_jobs: -1,
+    // Carrier drive. The Optimizer takes frequency as a fixed input, and the
+    // page has no control for it on the two-channel path, because a
+    // single-carrier envelope is phase-invariant: no value here could reorder
+    // the ranking. Null keeps the positional reading.
+    frequencies_hz: null,
+    phases_deg: null,
     // Ex-search symmetric buckets (added on main in v2.5.0) have no control on
     // the Optimizer page yet; these are the server-side defaults. See
     // docs/dev/RELEASE.md §B.
@@ -219,6 +283,10 @@ export function buildMExConfig(
     symmetry_eeg_csv: null,
     symmetry_pairing: form.symmetryPairing,
     n_jobs: -1,
+    // Carrier drive. Null keeps mEx's positional wiring — each pair its own
+    // carrier, consecutive pairs beating — which is what an untouched form
+    // means and the only wiring its pool-mode symmetry classes are valid for.
+    ...mexCarrierDrive(form),
   };
 }
 

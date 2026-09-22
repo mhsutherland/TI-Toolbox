@@ -177,4 +177,40 @@ describe("rowFormReason — the per-row half of the disabled-Run sentence", () =
       "Select an EEG net for the mapped-electrode simulation.",
     );
   });
+  describe("mEx carrier drive", () => {
+    const withDrive = (frequencies: (number | null)[], phases?: (number | null)[]) => {
+      const row = exRow("ernie", savedRoi(["A.csv"]), 4);
+      return { ...row, mex: { ...row.mex, frequencies, phases: phases ?? [null, null, null, null] } };
+    };
+
+    it("is silent when no frequencies are set — the positional wiring is fine", () => {
+      expect(rowFormReason(withDrive([null, null, null, null]))).toBeNull();
+    });
+
+    it("is silent for a partly filled drive, which means unset rather than wrong", () => {
+      expect(rowFormReason(withDrive([2000, 2010, null, null]))).toBeNull();
+    });
+
+    it("is silent for a wiring that beats", () => {
+      expect(rowFormReason(withDrive([2000, 2010, 4000, 4010]))).toBeNull();
+      expect(rowFormReason(withDrive([2000, 2000, 2010, 2010]))).toBeNull();
+    });
+
+    it("blocks a drive with no difference frequency before the job is spent", () => {
+      expect(rowFormReason(withDrive([2000, 2000, 2000, 2000]))).toContain("no difference frequency");
+    });
+
+    it("blocks a drive implying more than one difference frequency", () => {
+      expect(rowFormReason(withDrive([2000, 2010, 2020, 4000]))).toContain("more than one difference frequency");
+    });
+
+    it("blocks an elliptically polarised carrier", () => {
+      // Two channels on 2000 Hz, 90 degrees apart: the (P, Q) envelope is not derived for it.
+      expect(rowFormReason(withDrive([2000, 2000, 2010, 2010], [0, 90, 0, 0]))).toContain("elliptically polarised");
+    });
+
+    it("allows 180 degrees, which is a polarity reversal rather than an ellipse", () => {
+      expect(rowFormReason(withDrive([2000, 2000, 2010, 2010], [0, 180, 0, 0]))).toBeNull();
+    });
+  });
 });

@@ -91,7 +91,7 @@ describe("Optimizer Ex/mEx defaults validate against contracts/generated/config.
     expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
   });
 
-  it("MExForm with shared-carrier wiring still validates", () => {
+  it("MExForm with cross-pair electrode symmetry still validates", () => {
     const target = savedTargets(["Thalamus_target"], false)[0]!;
     const form = {
       ...defaultMExFormState(),
@@ -102,6 +102,69 @@ describe("Optimizer Ex/mEx defaults validate against contracts/generated/config.
     const config: MExConfigBody = buildMExConfig("ernie", "/mnt/example/leadfields/GSN-HydroCel-185/leadfield.hdf5", form, target, "");
     expect(config.symmetry_pairing).toBe("cross_pairs");
     expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+  });
+
+  describe("mEx carrier drive", () => {
+    const BUCKETS = {
+      e1_plus: ["E24"], e1_minus: ["E124"], e2_plus: ["E67"], e2_minus: ["E77"],
+      e3_plus: ["E1"], e3_minus: ["E2"], e4_plus: ["E3"], e4_minus: ["E4"],
+    };
+    const build = (over: Partial<ReturnType<typeof defaultMExFormState>>) =>
+      buildMExConfig(
+        "ernie",
+        "/mnt/example/leadfields/GSN-HydroCel-185/leadfield.hdf5",
+        { ...defaultMExFormState(), buckets: BUCKETS, ...over },
+        savedTargets(["Thalamus_target"], false)[0]!,
+        "",
+      );
+
+    it("sends nulls for an untouched form, so the run keeps the positional wiring", () => {
+      const config = build({});
+      expect(config.frequencies_hz).toBeNull();
+      expect(config.phases_deg).toBeNull();
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("sends both arrays once every channel has a frequency", () => {
+      const config = build({ frequencies: [2000, 2010, 4000, 4010] });
+      expect(config.frequencies_hz).toEqual([2000, 2010, 4000, 4010]);
+      // Phases zero-fill: the server rejects phases_deg without frequencies_hz, so an
+      // explicit all-zero drive is what "no phase offsets" has to mean on the wire.
+      expect(config.phases_deg).toEqual([0, 0, 0, 0]);
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("carries a shared carrier — two pairs on one frequency", () => {
+      // The wiring the positional model could not express at all.
+      const config = build({ frequencies: [2000, 2000, 2010, 2010] });
+      expect(config.frequencies_hz).toEqual([2000, 2000, 2010, 2010]);
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("carries a per-channel phase, 180 being a polarity reversal", () => {
+      const config = build({ frequencies: [2000, 2000, 2010, 2010], phases: [0, 180, 0, null] });
+      expect(config.phases_deg).toEqual([0, 180, 0, 0]);
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("treats a partly filled drive as unset", () => {
+      // A frequency on some channels and not others has no meaning the server could act on.
+      const config = build({ frequencies: [2000, 2010, null, null] });
+      expect(config.frequencies_hz).toBeNull();
+      expect(config.phases_deg).toBeNull();
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("ignores phases when no frequency was set", () => {
+      const config = build({ phases: [0, 180, 0, 0] });
+      expect(config.frequencies_hz).toBeNull();
+      expect(config.phases_deg).toBeNull();
+    });
+
+    it("rejects a non-positive frequency as unset rather than sending it", () => {
+      const config = build({ frequencies: [2000, 2010, 0, 4010] });
+      expect(config.frequencies_hz).toBeNull();
+    });
   });
 
   it("a LeadfieldConfig built for the 'Generate leadfield' action validates", () => {

@@ -29,11 +29,15 @@ import {
   BUCKET_TOOLTIPS,
   EX_BUCKET_KEYS,
   MEX_BUCKET_KEYS,
+  EX_CARRIER_HELP,
+  MEX_CARRIER_HELP,
+  MEX_CHANNELS,
   MTI_SYMMETRY_HELP,
   formatBytes,
   type ExFormState,
   type MExFormState,
 } from "./exConfig";
+import { describeCarrierWiring } from "../_shared/carriers";
 import { leadfieldFor, netOptions } from "./nets";
 import { POOL_KEY } from "./buckets";
 import { exCost, mexCost } from "./cost";
@@ -270,7 +274,12 @@ export function ExElectrodesSection({
 export function ExCurrentSection({ form, onChange }: { form: ExFormState; onChange: (patch: Partial<ExFormState>) => void }) {
   const cost = exCost(form);
   return (
-    <FormSection title="Current" collapsible summary={`${form.totalCurrent} mA total · ${form.currentStep} mA step · ${cost.splits} splits`}>
+    <FormSection
+      title="Current"
+      collapsible
+      summary={`${form.totalCurrent} mA total · ${form.currentStep} mA step · ${cost.splits} splits`}
+      helpSlot={<HelpButton label="carrier frequencies in Ex-search" text={EX_CARRIER_HELP} />}
+    >
       {/* Three numbers about one thing, on one line (coordinator, 2026-09-06 — the two-up form grid
           put Total and Step side by side and wrapped Channel limit onto a third row of its own).
           `.field-row-inline` is the shared idiom the Simulator's Electrodes row uses: label-left
@@ -322,16 +331,72 @@ export function MExElectrodesSection({
 
 /** Per-pair current and the symmetry search. */
 export function MExCarrierSection({ form, onChange }: { form: MExFormState; onChange: (patch: Partial<MExFormState>) => void }) {
+  const hint = describeCarrierWiring(
+    form.frequencies.every((f): f is number => f != null && f > 0) ? (form.frequencies as number[]) : null,
+    MEX_CHANNELS,
+  );
+  // A blank frequency cell stays blank: unlike current there is no sensible default carrier to
+  // substitute, and guessing one would silently change the physics.
+  const setChannel = (key: "frequencies" | "phases", i: number, next: number | undefined) =>
+    onChange({ [key]: form[key].map((old, idx) => (idx === i ? (next ?? null) : old)) });
   return (
     <FormSection
       title="Carriers"
       collapsible
-      summary={`${form.currentMa} mA per pair${form.symmetricBucket ? " · symmetric" : ""}`}
+      summary={
+        `${form.currentMa} mA per pair` +
+        (hint.kind === "positional" ? "" : ` · ${hint.coherentSum ? "shared carrier" : hint.summary.split(" · ").slice(-1)[0]}`) +
+        (form.symmetricBucket ? " · symmetric" : "")
+      }
+      helpSlot={<HelpButton label="carrier frequency and phase" text={MEX_CARRIER_HELP} />}
     >
       <>
         <Field label="Pair current" help="Current delivered by each of the four bipolar pairs.">
           <NumberInput value={form.currentMa} onValueChange={(v) => onChange({ currentMa: v ?? 2.0 })} unit="mA" min={0.1} max={10} step={0.1} />
         </Field>
+        {Array.from({ length: MEX_CHANNELS }, (_, i) => (
+          <Field
+            key={i}
+            label={`Pair ${i + 1} carrier`}
+            help={i === 0 ? "Blank keeps the positional wiring: pairs 1&2 beat, pairs 3&4 beat." : undefined}
+          >
+            <div className="field-row-inline">
+              <NumberInput
+                value={form.frequencies[i] ?? undefined}
+                onValueChange={(v) => setChannel("frequencies", i, v)}
+                unit="Hz"
+                min={0}
+                step={10}
+                placeholder="—"
+                aria-label={`Pair ${i + 1} carrier frequency (Hz)`}
+              />
+              <NumberInput
+                value={form.phases[i] ?? undefined}
+                onValueChange={(v) => setChannel("phases", i, v)}
+                unit="°"
+                step={90}
+                placeholder="0"
+                aria-label={`Pair ${i + 1} phase (degrees)`}
+              />
+            </div>
+          </Field>
+        ))}
+        {hint.kind !== "positional" && (
+          <Field
+            label="Wiring"
+            note={
+              hint.kind === "no-modulation"
+                ? "No difference frequency, so there is no envelope to maximise — this run will be refused. Examine an unmodulated montage in the Simulator instead."
+                : hint.kind === "unresolved"
+                  ? "These frequencies imply more than one difference frequency, which the envelope cannot represent — this run will be refused."
+                  : undefined
+            }
+          >
+            <span className="text-dense" data-cell="mex-wiring" data-kind={hint.kind}>
+              {hint.summary}
+            </span>
+          </Field>
+        )}
         <Field label="Symmetry" helpSlot={<HelpButton label="symmetric bucket search" text={MTI_SYMMETRY_HELP} />}>
           <Checkbox checked={form.symmetricBucket} onCheckedChange={(on) => onChange({ symmetricBucket: on })} label="Force left/right symmetry" />
         </Field>
