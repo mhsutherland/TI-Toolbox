@@ -486,9 +486,14 @@ class TestRegeneratePlots:
 
 @pytest.mark.unit
 class TestProcessAndSaveElectrodeMaps:
+    # _rank_top_montages is the pipeline's next step (tit/opt/ex/ranking.py, its
+    # own tests in tests/test_ex_ranking.py); stub it so these stay map tests.
+    @patch("tit.opt.ex.results._rank_top_montages", return_value=[])
     @patch("tit.opt.ex.results.generate_electrode_maps", return_value=["x.png"])
     @patch("tit.opt.ex.results.generate_plots", return_value=["h.png"])
-    def test_maps_generated_when_csv_resolves(self, mock_plots, mock_maps, tmp_path):
+    def test_maps_generated_when_csv_resolves(
+        self, mock_plots, mock_maps, mock_rank, tmp_path
+    ):
         from tit.opt.ex.results import process_and_save
 
         results = {
@@ -505,9 +510,12 @@ class TestProcessAndSaveElectrodeMaps:
         assert info["visualization_paths"] == ["h.png", "x.png"]
         assert mock_maps.call_args.args[0][0]["electrodes"] == ["A", "B", "C", "D"]
 
+    @patch("tit.opt.ex.results._rank_top_montages", return_value=[])
     @patch("tit.opt.ex.results.generate_electrode_maps")
     @patch("tit.opt.ex.results.generate_plots", return_value=[])
-    def test_maps_skipped_without_csv(self, mock_plots, mock_maps, tmp_path):
+    def test_maps_skipped_without_csv(
+        self, mock_plots, mock_maps, mock_rank, tmp_path
+    ):
         from tit.opt.ex.results import process_and_save
 
         results = {

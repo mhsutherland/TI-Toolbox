@@ -188,8 +188,16 @@ def save_bucket_file(
         f.write("\n")
 
 
-def _read_eeg_positions(eeg_csv_path: str | Path) -> dict[str, tuple[float, ...]]:
-    """Read electrode labels and positions from supported EEG CSV layouts."""
+def read_eeg_positions(eeg_csv_path: str | Path) -> dict[str, tuple[float, ...]]:
+    """Read electrode labels and positions from supported EEG CSV layouts.
+
+    Handles the three layouts in the repository: the 2-D template files under
+    ``resources/amv`` (``electrode_name,x,y`` with a header), the headerless
+    SimNIBS cap files (``Electrode,x,y,z,label`` -- ``resources/ElectrodeCaps_MNI``
+    and every subject's ``m2m_*/eeg_positions``), and a bare ``label,x,y[,z]``
+    table. The coordinate tuple is 2- or 3-long depending on the source, so
+    callers that need millimetres must pick the file, not just the labels.
+    """
     positions: dict[str, tuple[float, ...]] = {}
     with open(eeg_csv_path, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -231,6 +239,22 @@ def _read_eeg_positions(eeg_csv_path: str | Path) -> dict[str, tuple[float, ...]
     return positions
 
 
+# Kept so existing importers (``tit.plotting.ti_metrics._load_eeg_position_csv``) keep working.
+_read_eeg_positions = read_eeg_positions
+
+
+def electrode_pairs(electrodes: Sequence[str]) -> list[tuple[str, str]]:
+    """Group a flat electrode list into consecutive ``(plus, minus)`` channels.
+
+    Both montage spellings the toolbox writes -- four labels for an ex-search
+    montage, eight for an m-ex-search one -- are consecutive channel poles, so
+    the same pairing serves the maps and the ranking.
+    """
+    return [
+        (electrodes[i], electrodes[i + 1]) for i in range(0, len(electrodes) - 1, 2)
+    ]
+
+
 def canonical_template_coord_path(eeg_net_name: str | Path | None) -> Path | None:
     """Return a canonical 2D EEG-template coordinate file for known net names."""
     if not eeg_net_name:
@@ -257,7 +281,7 @@ def build_electrode_mirror_map(
     are mapped to themselves; downstream channel-pair validation still
     prevents self-pairs from being evaluated.
     """
-    positions = _read_eeg_positions(eeg_csv_path)
+    positions = read_eeg_positions(eeg_csv_path)
     if not positions:
         raise ValueError(f"No electrode positions found in {eeg_csv_path}")
 
@@ -305,7 +329,7 @@ def build_quadrant_buckets(eeg_csv_path: str | Path) -> dict[str, list[str]]:
     ``E2+`` = left posterior, ``E2-`` = right posterior.
     """
     buckets = {key: [] for key in BUCKET_KEYS}
-    for label, coords in _read_eeg_positions(eeg_csv_path).items():
+    for label, coords in read_eeg_positions(eeg_csv_path).items():
         x, y = coords[:2]
         if x < 0 and y >= 0:
             buckets["e1_plus"].append(label)

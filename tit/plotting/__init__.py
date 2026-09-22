@@ -17,6 +17,8 @@ from .stats import (
 from .ti_metrics import (
     plot_electrode_score_heatmap,
     plot_intensity_vs_focality,
+    plot_top_montage_maps,
+    plot_top_montages,
     plot_montage_distributions,
     plot_montage_score_map,
 )
@@ -30,6 +32,8 @@ __all__ = [
     "plot_cluster_size_mass_correlation",
     "plot_montage_distributions",
     "plot_intensity_vs_focality",
+    "plot_top_montages",
+    "plot_top_montage_maps",
     "plot_montage_score_map",
     "plot_electrode_score_heatmap",
 ]

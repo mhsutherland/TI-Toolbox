@@ -158,6 +158,49 @@ Each run writes to `derivatives/SimNIBS/sub-{id}/ex-search/{run_name}/`:
   </div>
 </div>
 
+### Choosing a montage
+
+`final_output.csv` is written in enumeration order, so every run also writes the montages it would pick, under three rules applied in order:
+
+1. **Intensity floor** — keep only rows with `TImean_ROI >= 0.6` V/m. Below that the montage is not worth running.
+2. **Focality first** — rank the survivors by `Focality` descending, tie-breaking on `TImean_ROI`, and take the top 5.
+3. **Electrode separation** — reject a montage when two electrodes belonging to *different* channels sit closer than **20 mm** on the cap. Two energised electrodes that are immediate neighbours force the usable current amplitude down, because participants feel the stimulation far more there. Distance between the two poles of a *single* channel is reported but never filtered on — that follows from the buckets the search was given.
+
+To put the 20 mm default on a 256-channel net in scale: the median nearest-neighbour spacing of GSN-HydroCel-256 is ~17 mm in subject space and ~18.5 mm on the MNI template, so 20 mm excludes a median of two to four neighbours per electrode depending on the cap — the closest part of the first ring rather than all of it. The full ring reaches ~24 mm, so `--min-separation-mm 25` excludes every immediate neighbour and 35 mm starts on the second ring. As a worked example, E054 and E061 are 22.0 mm apart on one subject's cap and 25.2 mm on the MNI template — a borderline pair can therefore flip depending on which cap resolves. On a two-channel run the rule is effectively a no-op at any of these values — the channels are already 120 mm+ apart — and it is the multipolar case, with two channel pairs per hemisphere, that it is there for.
+
+Nothing is relaxed silently. If fewer than five montages qualify, fewer are written and `top_montages.json` records how many each filter removed.
+
+Distances are measured on the subject's own `m2m_*/eeg_positions/{net}.csv`, found by walking up from the run directory; runs whose subject cap is missing fall back to the bundled `resources/ElectrodeCaps_MNI/{net}.csv`, and a net with neither still gets the ranking, with the separation rule marked as not applied. (The 2-D template under `resources/amv` used by the EEG-map figures is a flattened cap picture in pixels, not millimetres, and is never used here.)
+
+The files:
+
+- `top_montages.csv` — the picks, with `final_output.csv`'s own columns plus `Rank` and `MinSeparation_mm`. Not written when nothing qualifies.
+- `top_montages.json` — thresholds, per-filter drop counts, which cap file the coordinates came from, and the electrode pairs of each pick.
+- `top_montages_scatter.png` — the intensity/focality cloud split by the rules: grey below the floor, hollow red for channels too close, blue eligible, and the picks starred and numbered.
+- `top_montages_map.pdf` — one page per pick, that montage alone on the electrode cap: each channel an arc in its own colour, anodes filled and cathodes hollow, every electrode labelled, and a legend naming the channels. This is the artifact to look at before placing electrodes, and the one that shows at a glance when two channels are sitting close together. The Results pane rasterises it beside the PNGs and pages through it with prev/next.
+
+Regenerate for an existing run, or try different thresholds, with:
+
+```bash
+simnibs_python -m tit.opt.ex.ranking <run_dir> \
+    [--min-intensity 0.6] [--min-separation-mm 20] [--top 5] [--eeg-csv CSV]
+```
+
+A four-channel run for comparison — 1,050 evaluations targeting the anterior thalamus, of which 298 fall below the floor and a further 123 put two channels within 20 mm of each other, leaving 629 eligible:
+
+| Rank | Montage | TImean_ROI | Focality | MinSeparation_mm |
+| ---- | ------- | ---------- | -------- | ---------------- |
+| 1 | `E038_E069 <> E204_E160 <> E011_E202 <> E057_E107` | 0.7513 | 2.0072 | 39.3 |
+| 2 | `E038_E069 <> E204_E169 <> E011_E202 <> E057_E106` | 0.7456 | 2.0011 | 39.3 |
+| 3 | `E037_E069 <> E204_E160 <> E018_E202 <> E057_E107` | 0.7368 | 1.9934 | 39.3 |
+| 4 | `E037_E069 <> E203_E160 <> E018_E202 <> E063_E107` | 0.6880 | 1.9862 | 20.5 |
+| 5 | `E038_E069 <> E203_E160 <> E011_E202 <> E063_E107` | 0.6910 | 1.9843 | 20.5 |
+
+Note how little these five differ from one another — that is what `--min-distinct-electrodes` is for. On this run `--min-distinct-electrodes 3` gives five genuinely different montages for very little focality: 2.0072, 1.9862, 1.9762, 1.9600, 1.9437.
+
+`--no-collapse` keeps every current split of an electrode set instead of only its best-scoring one, and `--min-distinct-electrodes N` requires each pick to differ from the ones above it by N electrodes, which is worth reaching for when the top of a multipolar run is five near-copies of one montage.
+
+
 ## Example Results
 
 Top 5 of 16,807 evaluations by `Composite_Index` (sub-ernie, EEG10-10 Jurak leadfield, 5 mm spherical ROI at MNI (−38, 5, 0), TI-Toolbox v2.4.0). Bucket search with 7 candidate electrodes per position (7⁴ = 2,401 electrode combinations) × 7 current splits (2 mA total, 0.25 mA step) — 13.6 min on 12 cores (0.05 s each):

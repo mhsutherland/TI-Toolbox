@@ -322,7 +322,14 @@ def montage_score_records(results: dict, roi_name: str) -> list[dict]:
 
 
 def montage_score_records_from_csv(csv_path: str | Path) -> list[dict]:
-    """Records for the electrode maps read back from ``final_output.csv``."""
+    """Records for the electrode maps read back from ``final_output.csv``.
+
+    Each record also carries the source row verbatim under ``"row"`` (an
+    insertion-ordered dict, so its keys are the file's column order).
+    :mod:`tit.opt.ex.ranking` needs the current columns and the column order to
+    write ``top_montages.csv`` with the same shape as the file it ranks, and the
+    column set differs between an ex run and an mEx one.
+    """
     records = []
     with open(csv_path, newline="") as f:
         for row in csv.DictReader(f):
@@ -338,6 +345,7 @@ def montage_score_records_from_csv(csv_path: str | Path) -> list[dict]:
                     "timean": ti_mean,
                     "focality": focality,
                     "composite": ti_mean * focality,
+                    "row": dict(row),
                 }
             )
     return records
@@ -476,6 +484,22 @@ def regenerate_plots(run_dir: str | Path, eeg_csv: str | Path | None = None) -> 
     return generate_electrode_maps(records, eeg_csv, str(run_dir), logger)
 
 
+def _rank_top_montages(output_dir: str, logger: Any) -> list[str]:
+    """Write the run's ``top_montages.*`` artifacts, or log why it could not.
+
+    Ranking is an interpretation of a search that already finished, so a failure
+    here must not lose the search: the same posture ``process_and_save`` takes
+    for the electrode maps.
+    """
+    from tit.opt.ex.ranking import rank_run
+
+    try:
+        return rank_run(output_dir, logger=logger)["paths"]
+    except Exception as exc:  # deliberately broad: see the docstring
+        logger.warning(f"Top-montage ranking skipped: {exc}")
+        return []
+
+
 def process_and_save(results: dict, config, output_dir: str, logger: Any) -> dict:
     """Run the full post-search output pipeline (JSON + CSV + plots).
 
@@ -519,6 +543,7 @@ def process_and_save(results: dict, config, output_dir: str, logger: Any) -> dic
                 output_dir,
                 logger,
             )
+        viz_paths += _rank_top_montages(output_dir, logger)
 
     def _range(vals):
         return (min(vals), max(vals)) if vals else None
