@@ -173,9 +173,7 @@ class TISimulation(BaseSimulation):
             # TI_avg: orientation-averaged companion to TI_max (tit.calc, not
             # SimNIBS's TI.get_maxTI -- there is no direction-averaged form there).
             TIavg = (
-                get_TI_avg(e_fields)
-                if wiring is None
-                else get_TI_avg(packed, psi=psi)
+                get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed, psi=psi)
             )
             mout.add_element_field(TIavg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
@@ -187,9 +185,7 @@ class TISimulation(BaseSimulation):
             )
         if const.FIELD_HF_SAR in selected:
             # Carrier-exposure safety map (Cassarà 2025): heating driver.
-            mout.add_element_field(
-                hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR
-            )
+            mout.add_element_field(hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR)
 
         view_field = (
             const.FIELD_TI_MAX

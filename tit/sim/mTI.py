@@ -223,9 +223,7 @@ class mTISimulation(BaseSimulation):
             # TI_avg: orientation-averaged companion to mTI_max, over all N
             # channel fields jointly (tit.calc.get_TI_avg).
             mti_avg = (
-                get_TI_avg(e_fields)
-                if wiring is None
-                else get_TI_avg(packed, psi=psi)
+                get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed, psi=psi)
             )
             mout.add_element_field(mti_avg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
@@ -238,9 +236,7 @@ class mTISimulation(BaseSimulation):
         if const.FIELD_HF_SAR in selected:
             # Carrier-exposure safety map: heating driver. Power (incoherent)
             # sum across the N carriers -- Cassarà 2025 Part II, p. 8.
-            mout.add_element_field(
-                hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR
-            )
+            mout.add_element_field(hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR)
 
         view_field = (
             const.FIELD_MTI_MAX

@@ -1161,9 +1161,7 @@ class ExConfig:
         if self.symmetry_pairing not in ("within_pairs", "cross_pairs"):
             raise ValueError("symmetry_pairing must be 'within_pairs' or 'cross_pairs'")
 
-        _validate_optimizer_drive(
-            self.frequencies_hz, self.phases_deg, 2, "ExConfig"
-        )
+        _validate_optimizer_drive(self.frequencies_hz, self.phases_deg, 2, "ExConfig")
 
     @property
     def carrier_wiring(self):
