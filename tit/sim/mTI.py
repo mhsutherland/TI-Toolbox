@@ -44,12 +44,14 @@ from tit.calc import get_TI_avg, get_TI_dir, get_TI_vectors
 from tit.fields import hf_peak, hf_sar
 from tit.sim.base import BaseSimulation
 from tit.sim.config import SimulationMode
+from tit.wiring import envelope_inputs
 from tit.sim.utils import (
     extract_fields,
     finish_t1_to_mni,
     safe_move,
     start_t1_to_mni,
     transform_dirs_to_nifti,
+    warn_if_carrier_metrics_unrequested,
 )
 
 # Brain tissue crop mask — ranges defined in constants.BRAIN_TISSUE_TAG_RANGES
@@ -162,13 +164,39 @@ class mTISimulation(BaseSimulation):
         # Extract E-field arrays
         e_fields = [m.field["E"].value for m in meshes]
 
-        # Save intermediate pairwise TI fields (adjacent pairs)
+        # Carrier wiring, when the run declared one. `None` keeps the
+        # positional reading -- consecutive channels share a carrier -- which
+        # is what every config written before frequencies existed means.
+        wiring = self.config.carrier_wiring
+        if wiring is not None:
+            self.logger.info("Carrier wiring: %s", wiring.describe())
+            warn_if_carrier_metrics_unrequested(self.config, wiring, self.logger)
+            packed, psi = envelope_inputs(e_fields, wiring)
+
+        # Save intermediate per-carrier TI fields, for inspection only.
         ti_pair_suffixes = []
-        for i in range(0, n_pairs, 2):
-            ltr1, ltr2 = letters[i], letters[i + 1]
-            suffix = f"TI_{ltr1}{ltr2}"
+        if wiring is None:
+            carriers = [
+                ([e_fields[i], e_fields[i + 1]], f"{letters[i]}{letters[i + 1]}")
+                for i in range(0, n_pairs, 2)
+            ]
+        else:
+            # A carrier is now a beat between two *frequency groups*, each of
+            # which may hold several channels; the label names the channels on
+            # each side so the file says what it contains.
+            carriers = [
+                (
+                    [packed[2 * k], packed[2 * k + 1]],
+                    "".join(letters[m] for m in wiring.groups[lo].members)
+                    + "_"
+                    + "".join(letters[m] for m in wiring.groups[hi].members),
+                )
+                for k, (lo, hi) in enumerate(wiring.beat_pairs)
+            ]
+        for pair_fields, label in carriers:
+            suffix = f"TI_{label}"
             ti_pair_suffixes.append(suffix)
-            ti_vecs = get_TI_vectors([e_fields[i], e_fields[i + 1]])
+            ti_vecs = get_TI_vectors(pair_fields)
             self._save_ti_vectors(
                 meshes[0], ti_vecs, dirs["ti_mesh"], f"{name}_{suffix}.msh"
             )
@@ -184,23 +212,35 @@ class mTISimulation(BaseSimulation):
         mout = deepcopy(meshes[0])
         mout.elmdata = []
         if const.FIELD_TI_MAX in selected:
-            mti_vectors = get_TI_vectors(e_fields)
+            mti_vectors = (
+                get_TI_vectors(e_fields)
+                if wiring is None
+                else get_TI_vectors(packed, psi=psi)
+            )
             mti_field = np.linalg.norm(mti_vectors, axis=1)
             mout.add_element_field(mti_field, const.FIELD_MTI_MAX)
         if const.FIELD_TI_AVG in selected:
             # TI_avg: orientation-averaged companion to mTI_max, over all N
             # channel fields jointly (tit.calc.get_TI_avg).
-            mti_avg = get_TI_avg(e_fields)
+            mti_avg = (
+                get_TI_avg(e_fields)
+                if wiring is None
+                else get_TI_avg(packed, psi=psi)
+            )
             mout.add_element_field(mti_avg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
             # Carrier-exposure safety map (Cassarà 2025 Part I, Eq. 3): peak
             # carrier field. Wiring is positional, so one channel field is one
             # carrier; the worst-case sign enumeration runs over all N of them.
-            mout.add_element_field(hf_peak(*e_fields), const.FIELD_HF_PEAK)
+            mout.add_element_field(
+                hf_peak(*e_fields, wiring=wiring), const.FIELD_HF_PEAK
+            )
         if const.FIELD_HF_SAR in selected:
             # Carrier-exposure safety map: heating driver. Power (incoherent)
             # sum across the N carriers -- Cassarà 2025 Part II, p. 8.
-            mout.add_element_field(hf_sar(*e_fields), const.FIELD_HF_SAR)
+            mout.add_element_field(
+                hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR
+            )
 
         view_field = (
             const.FIELD_MTI_MAX
@@ -293,7 +333,12 @@ class mTISimulation(BaseSimulation):
                 cm.field["E_normal"].value.reshape(-1, 1) * normals for cm in cms
             ]
 
-        ti_normal = get_TI_dir(e_fields, normals)
+        wiring = self.config.carrier_wiring
+        if wiring is None:
+            ti_normal = get_TI_dir(e_fields, normals)
+        else:
+            packed, psi = envelope_inputs(e_fields, wiring)
+            ti_normal = get_TI_dir(packed, normals, psi=psi)
 
         mout = deepcopy(cms[0])
         mout.nodedata = []

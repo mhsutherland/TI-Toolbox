@@ -31,7 +31,7 @@ from simnibs import mesh_io, sim_struct
 from simnibs.utils import TI_utils as TI
 
 from tit import constants as const
-from tit.calc import get_TI_avg
+from tit.calc import get_TI_avg, get_TI_dir, get_TI_vectors
 from tit.fields import hf_peak, hf_sar
 from tit.sim.base import BaseSimulation
 from tit.sim.config import SimulationMode
@@ -41,7 +41,9 @@ from tit.sim.utils import (
     safe_move,
     start_t1_to_mni,
     transform_dirs_to_nifti,
+    warn_if_carrier_metrics_unrequested,
 )
+from tit.wiring import envelope_inputs
 
 # Brain tissue crop mask — keeps tissue volume elements and surface elements
 # Ranges defined in constants.BRAIN_TISSUE_TAG_RANGES
@@ -146,24 +148,48 @@ class TISimulation(BaseSimulation):
         ef2 = m2.field["E"]
         selected = set(self.config.output_fields)
 
+        # Carrier wiring, when the run declared one. `None` keeps the
+        # positional reading: two pairs, two distinct frequencies, one beat --
+        # which is what every config written before frequencies existed means,
+        # and is why that branch still calls SimNIBS's `get_maxTI` unchanged.
+        e_fields = [ef1.value, ef2.value]
+        wiring = self.config.carrier_wiring
+        if wiring is not None:
+            self.logger.info("Carrier wiring: %s", wiring.describe())
+            warn_if_carrier_metrics_unrequested(self.config, wiring, self.logger)
+            packed, psi = envelope_inputs(e_fields, wiring)
+
         mout = deepcopy(m1)
         mout.elmdata = []
         if const.FIELD_TI_MAX in selected:
-            TImax = TI.get_maxTI(ef1.value, ef2.value)
+            if wiring is None:
+                TImax = TI.get_maxTI(ef1.value, ef2.value)
+            else:
+                # The sign-agnostic closed form cannot represent a shared
+                # carrier, so the wired path goes through the (P, Q) envelope.
+                TImax = np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)
             mout.add_element_field(TImax, const.FIELD_TI_MAX)
         if const.FIELD_TI_AVG in selected:
             # TI_avg: orientation-averaged companion to TI_max (tit.calc, not
             # SimNIBS's TI.get_maxTI -- there is no direction-averaged form there).
-            TIavg = get_TI_avg([ef1.value, ef2.value])
+            TIavg = (
+                get_TI_avg(e_fields)
+                if wiring is None
+                else get_TI_avg(packed, psi=psi)
+            )
             mout.add_element_field(TIavg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
             # Carrier-exposure safety map (Cassarà 2025): peak carrier field.
             # Written as a volume field so it flows to subject-/MNI-space
             # NIfTIs alongside TI_max.
-            mout.add_element_field(hf_peak(ef1.value, ef2.value), const.FIELD_HF_PEAK)
+            mout.add_element_field(
+                hf_peak(*e_fields, wiring=wiring), const.FIELD_HF_PEAK
+            )
         if const.FIELD_HF_SAR in selected:
             # Carrier-exposure safety map (Cassarà 2025): heating driver.
-            mout.add_element_field(hf_sar(ef1.value, ef2.value), const.FIELD_HF_SAR)
+            mout.add_element_field(
+                hf_sar(*e_fields, wiring=wiring), const.FIELD_HF_SAR
+            )
 
         view_field = (
             const.FIELD_TI_MAX
@@ -250,7 +276,15 @@ class TISimulation(BaseSimulation):
             ef1_v = cm1.field["E_normal"].value.reshape(-1, 1) * normals
             ef2_v = cm2.field["E_normal"].value.reshape(-1, 1) * normals
 
-        TI_normal = TI.get_dirTI(ef1_v, ef2_v, cm1.nodes_normals().value)
+        normals = cm1.nodes_normals().value
+        wiring = self.config.carrier_wiring
+        if wiring is None:
+            TI_normal = TI.get_dirTI(ef1_v, ef2_v, normals)
+        else:
+            # Same quantity through the K-carrier form, which is the only one
+            # that can represent a shared or non-beating carrier.
+            packed, psi = envelope_inputs([ef1_v, ef2_v], wiring)
+            TI_normal = get_TI_dir(packed, normals, psi=psi)
 
         mout = deepcopy(cm1)
         mout.nodedata = []

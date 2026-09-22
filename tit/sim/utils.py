@@ -436,6 +436,48 @@ def load_montages(
 # ── Directory setup ────────────────────────────────────────────────────────────────
 
 
+def warn_if_carrier_metrics_unrequested(config, wiring, logger):
+    """Warn when the run's only meaningful field was not asked for.
+
+    A montage whose channels share one frequency has no beat, so ``TI_max`` is
+    identically zero and the carrier maps (``hf_peak`` / ``hf_sar``) carry
+    everything there is to see.  A montage with a coherent group has a carrier
+    field that depends on electrode polarity, which the envelope alone does not
+    show.  In both cases a run without the carrier fields selected produces a
+    blank or misleading result.
+
+    This warns and does not amend ``output_fields``: which fields to compute is
+    the user's analysis choice, and silently adding one would change what the
+    run means.
+    """
+    if wiring is None:
+        return
+    selected = set(config.output_fields)
+    have_carrier = bool(selected & {const.FIELD_HF_PEAK, const.FIELD_HF_SAR})
+    if have_carrier:
+        return
+    if not wiring.has_modulation:
+        logger.warning(
+            "This montage has no difference frequency (%s), so the modulation "
+            "envelope is identically zero and %s will be a blank map. The "
+            "carrier field is the only meaningful output here -- select "
+            "%s and/or %s.",
+            wiring.describe(),
+            const.FIELD_TI_MAX,
+            const.FIELD_HF_PEAK,
+            const.FIELD_HF_SAR,
+        )
+    elif wiring.has_coherent_sum:
+        logger.warning(
+            "This montage drives more than one electrode pair per carrier "
+            "(%s), so the carrier field depends on electrode polarity in a way "
+            "the envelope does not show. Consider selecting %s and/or %s.",
+            wiring.describe(),
+            const.FIELD_HF_PEAK,
+            const.FIELD_HF_SAR,
+        )
+
+
 def setup_montage_directories(montage_dir: str, mode: SimulationMode) -> dict[str, str]:
     """Create the BIDS-compliant output directory tree for one montage.
 
@@ -663,11 +705,18 @@ def create_simulation_config_file(
         "subject_id": config.subject_id,
         "simulation_name": montage.name,
         "simulation_display_name": montage.display_name,
-        "simulation_mode": montage.simulation_mode.value,
+        "simulation_mode": config.simulation_mode_for(montage).value,
         "montage_mode": montage.mode.value,
         "eeg_net": montage.eeg_net,
         "conductivity": config.conductivity,
         "electrode_pairs": montage.electrode_pairs,
+        "frequencies_hz": config.frequencies_hz,
+        "phases_deg": config.phases_deg,
+        "carrier_wiring": (
+            config.carrier_wiring.describe()
+            if config.frequencies_hz is not None
+            else None
+        ),
         "is_xyz_montage": montage.is_xyz,
         "electrode_coordinates": electrode_coordinates,
         "electrode_coordinate_source": electrode_coordinate_source,
@@ -1073,7 +1122,7 @@ def _validate_simulation_inputs(config: SimulationConfig) -> None:
                     "each pair must contain exactly two electrodes."
                 )
 
-        mode = montage.simulation_mode
+        mode = config.simulation_mode_for(montage)
         required_currents = 2 if mode == SimulationMode.TI else montage.num_pairs
         if len(config.intensities) < required_currents:
             raise ValueError(
@@ -1123,17 +1172,15 @@ def _run_simulation_inner(
     montages = config.montages
     results = []
     total = len(montages)
+    wiring = config.carrier_wiring
+    if wiring is not None:
+        logger.info("Carrier wiring: %s", wiring.describe())
     for idx, montage in enumerate(montages):
-        logger.info(
-            f"[{idx+1}/{total}] {montage.simulation_mode.value}: {montage.name}"
-        )
+        mode = config.simulation_mode_for(montage)
+        logger.info(f"[{idx+1}/{total}] {mode.value}: {montage.name}")
         if progress_callback:
             progress_callback(idx, total, montage.name)
-        cls = (
-            TISimulation
-            if montage.simulation_mode == SimulationMode.TI
-            else mTISimulation
-        )
+        cls = TISimulation if mode == SimulationMode.TI else mTISimulation
         simulation = cls(config, montage, logger)
         results.append(
             simulation.run(simulation_dir, overwrite=True)
