@@ -52,6 +52,7 @@ rationale below consolidates later amendments without treating superseded design
 | 33 | 2026-09-18 | Path validation at the boundary: one name grammar, one lexical join, one physical containment check; CodeQL alerts resolved by shape, not suppression | amends 30 |
 | 34 | 2026-09-19 | A job's CPU/RSS are its process tree's, sampled once a second; peak and average persist with the record; the Jobs table drops STAGE | live |
 | 35 | 2026-09-19 | The Artifacts tab lists the job's output folder from disk (`GET /api/jobs/{id}/artifacts`); a runner registers where it wrote, not what | live |
+| 36 | 2026-09-22 | **Carrier frequency and phase are explicit per channel; coherence is derived, not assumed.** Supersedes the positional carrier model (2026-09-07) as the *default*, which it keeps | live |
 
 ## Runtime and distribution
 
@@ -371,6 +372,11 @@ do not duplicate its version ranges or correction factors here.
 
 ### 2026-09-07 — Positional carrier model and one pair-count rule
 
+> **Superseded as the general rule by [ADR 36](#2026-09-22--explicit-carrier-frequency-and-phase)
+> (2026-09-22), and retained as the default.** The revisit condition below was met: frequency and
+> phase are now expressible per channel, and a montage that declares them gets a derived wiring.
+> A montage that declares nothing still reads exactly as this decision states, so no result moves.
+
 **Decision.** One electrode pair is one current channel/carrier; positional pairing defines TI/mTI.
 Valid field/pair counts are even and at least two, stated once in `is_valid_pair_count`. Exposure
 is coherent within a carrier and incoherent across carriers; the shipped wiring needs no
@@ -381,6 +387,41 @@ advertise unsupported wiring. Config and math previously disagreed on odd pair c
 **Cost.** Shared-carrier montages are inexpressible and need coherent presumming plus a common
 configuration contract if restored. No released version shipped the short-lived grouping API.
 **Revisit if.** Hardware supports multiple phase-locked pairs on one source, or allowed pair counts change.
+
+### 2026-09-22 — Explicit carrier frequency and phase
+
+**Decision.** `frequencies_hz` and `phases_deg`, one entry per electrode pair, sit beside
+`intensities` on `SimulationConfig` / `ExConfig` / `MExConfig`. Both default to `None`, which keeps
+the positional reading of [2026-09-07](#2026-09-07--positional-carrier-model-and-one-pair-count-rule)
+exactly. Given frequencies, `tit.wiring.derive_wiring` groups channels that share one (summed as
+vectors, the coherent pre-sum `tit.fields` had always documented as missing), pairs the remaining
+frequencies by their one difference frequency, and hands anything left over to `tit.calc`'s existing
+`unpaired` argument. `psi` carries the envelope phase. An assignment implying more than one
+difference frequency, or an elliptically polarised carrier, is **rejected, not approximated**.
+
+**Why.** Coherence was assumed rather than stated, and the assumption is unstated in the output. Two
+pairs driven at one frequency do not beat at all, yet the sign-agnostic K=1 closed form
+(`_get_TI_vectors_k1`) reported a full-size `TI_max`; and `+/- +/-` versus `+/- -/+` — constructive
+versus destructive interference, a real difference in the delivered field — returned identical
+numbers from every shipped metric. With evidence that unmodulated kHz carriers are not neurally
+inert, a simulation must not report an envelope that does not exist, nor hide the carrier that does.
+
+**Cost.** Two configuration fields and a derived structure to explain. The optimizer gains a fixed
+input it must honour: a zero-Δf assignment makes its objective identically zero, so it is refused,
+and mEx pool mode is refused for any wiring its symmetry classes are not valid for. **The GUI
+control is on mEx only**, because a two-channel Ex envelope is phase-invariant (`psi` is documented
+as ignored at K=1) and the only other assignment is the refused zero-Δf one — so no Ex input could
+reorder a ranking, and shipping one would advertise a tunable that does not exist. Ex carries an
+explanation in its Current section instead; scripts may still set the fields there, to no effect.
+Bucket-mode symmetry needs no guard: it restricts which candidates are generated rather than
+collapsing equivalence classes, so it stays valid under any wiring. Flex is not
+frequency-aware (its objective is internal to SimNIBS's `TesFlexOptimization`, hard-coded to two
+channels) and says so. The FEM remains frequency-independent — entering 2 kHz and 4 kHz does not
+give those carriers different tissue conductivities — which was always true but becomes a plausible
+misreading only now that a frequency can be typed; it is stated in the wiki.
+
+**Revisit if.** The envelope is generalised to elliptically polarised carriers, more than one
+difference frequency is needed, or dielectric dispersion is modelled in the FEM.
 
 ## Development milestones
 

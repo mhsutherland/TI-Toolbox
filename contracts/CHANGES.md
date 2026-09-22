@@ -1053,3 +1053,35 @@ replacement is now controlled solely by explicit `overwrite: true`/`replace_exis
 the request; `check_overwrite_permission` no longer 403s, only 409s pending confirmation. Non-critical
 `/api/validate` findings never blocked queuing server-side, so no behavior changed there. A stale
 `allow_unsafe_overrides` key in a project's `settings.json` is ignored on read, not rejected.
+
+## 2026-09-22 — Per-channel carrier drive on three config classes
+
+Generated-schema change only: `contracts/openapi.yaml` is untouched, and every affected property is
+under an `x-tit-config` placeholder, so `config.schema.json` / `openapi.json` / `schema.d.ts` were
+regenerated from the dataclasses (`dev/build_schema.py`, `dev/build_contract.py`,
+`npm run gen:api`) rather than hand-edited. Pure insertions: 210 lines, no deletions.
+
+**Added** — the same two optional fields on `SimulationConfig` (`tit/sim/config.py`) and on
+`ExConfig` / `MExConfig` (`tit/opt/config.py`):
+
+1. **`frequencies_hz`** (`list[float] | null`, default `null`) — one carrier frequency per
+   electrode pair, positionally aligned with `intensities` exactly as `electrode_pairs` is.
+2. **`phases_deg`** (`list[float] | null`, default `null`) — one drive phase per electrode pair,
+   in degrees. `180` is a polarity reversal. Rejected without `frequencies_hz`, since a phase is
+   only meaningful against a carrier.
+
+Both are **optional and null-defaulting, and neither is in `required`**, so an existing payload
+that omits them validates unchanged and is read exactly as before: the positional carrier model of
+`docs/dev/DECISIONS.md`'s 2026-09-07 entry, every pair its own distinct frequency. The desktop
+Simulator builder omits the keys entirely rather than sending nulls, so old and new payloads are
+byte-identical for a montage that sets no frequency. `SimulationConfig` keeps
+`additionalProperties: false`; these are now known properties rather than rejected ones.
+
+Note for generated-type consumers: `openapi-typescript` emits a property with a default as
+*required* in TypeScript (`frequencies_hz: number[] | null`), which is a generator convention and
+not the JSON Schema's `required` list — `buildExConfig` / `buildMExConfig` therefore pass explicit
+`null`s, while `buildSimulationConfig` (typed `Record<string, unknown>`) omits them.
+
+What the fields mean, and which assignments are rejected rather than approximated, is
+`tit/wiring.py`; the user-facing description is
+[Channels and Carriers](../docs/wiki/simulator.md#channels-and-carriers).

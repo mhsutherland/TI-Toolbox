@@ -1007,8 +1007,18 @@ def tool_get_quick_facts(_: Dict[str, Any]) -> Dict[str, Any]:
             "get_TI_dir(fields, directions, psi=None). `fields` is a LIST of 2K arrays "
             "paired positionally. get_nTI_vectors, get_mTI_vectors/get_mTI_dir, "
             "get_magnitude_am and the channels= parameter were all removed in v2.5.0.",
-            "carrier_model": "Positional wiring: one field is one carrier "
-            "(tit.fields.hf_peak(*fields) / hf_sar(*fields)). There is no montage.channels.",
+            "carrier_model": "Two readings. Without frequencies the wiring is positional: "
+            "one field is one carrier, hf_peak(*fields) / hf_sar(*fields) -- the default, "
+            "and how every result before the carrier-drive change was computed. With "
+            "SimulationConfig.frequencies_hz / phases_deg (also on ExConfig/MExConfig, one "
+            "entry per electrode pair) tit.wiring.derive_wiring groups channels sharing a "
+            "frequency, sums them as VECTORS first, pairs the rest by their one difference "
+            "frequency, and passes wiring= to hf_peak/hf_sar. Consequences: channels on one "
+            "frequency do not beat (TI_max == 0 exactly), and +/- +/- vs +/- -/+ then differ. "
+            "Montage.channels did not come back -- the grouping is derived from frequency, "
+            "never declared. A non-beating carrier is handed to tit.calc paired with a zero "
+            "field, so tit.calc itself is unchanged. More than one difference frequency, or a "
+            "non-0/180 phase within a frequency, raises WiringError for the envelope.",
             "exposure_metrics": "Quasi-static: E is a phasor AMPLITUDE (V/m, peak, not RMS), "
             "no time axis; every exposure quantity is a worst case over unknown relative "
             "phases. Per Cassara et al. 2025 Part II p.8, fields at identical frequencies "

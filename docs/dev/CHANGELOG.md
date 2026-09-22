@@ -9,7 +9,41 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
 ---
 ### Unreleased
 
-Nothing yet.
+- **Carrier frequency and phase can be set per channel.** The Simulator's job rows take a
+  **Frequency** (Hz) and **Phase** (°) per electrode pair, as does the Optimizer's **Carriers**
+  section for an mTI (4-pair) search. Leave them blank and nothing changes: the toolbox keeps
+  reading a montage positionally — each pair at its own distinct frequency, consecutive pairs
+  beating — which is how every earlier version computed every result.
+
+  Set them and the wiring is *derived* rather than assumed, which makes two things right that were
+  previously invisible. Channels sharing a frequency **do not beat**, so the modulation envelope is
+  exactly zero rather than the full-size value the sign-agnostic closed form reported; and they
+  superpose as vectors, so `+/- +/-` and `+/- -/+` — constructive against destructive interference
+  — no longer return identical numbers from `hf_peak` and `hf_sar`. A run with no difference
+  frequency warns when only `TI_max` was requested, because that map will be blank and the carrier
+  field (`hf_peak` / `hf_sar`) is the meaningful output.
+
+  Two-channel Ex-search has no such control, deliberately: a single-carrier envelope is
+  phase-invariant, so no frequency you could enter would reorder its results. mTI is two carriers,
+  where the relative envelope phase does change the modulation depth — and where `2000, 2000, 2010,
+  2010`, two pairs sharing each carrier, becomes expressible for the first time. The optimizer
+  treats frequency as a fixed input and never searches over it; an assignment with no difference
+  frequency is refused, because every candidate would then score zero.
+
+  The job row states the derived wiring in words, e.g. `2 channels · 1 frequency · no modulation
+  (TI_max = 0) · coherent sum (electrode order matters)`. Frequencies implying more than one
+  difference frequency, or an elliptically polarised carrier, are rejected rather than
+  approximated. **Frequency does not make the FEM frequency-dependent** — dielectric dispersion is
+  still not modelled. See
+  [Channels and Carriers]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers).
+
+  **One assumption worth checking in results from v3.0.0 and earlier.** Those versions read every
+  montage positionally, taking each pair to be driven at its own distinct frequency. For a standard
+  TI protocol that is correct and nothing needs review. If two pairs were in fact driven at the
+  *same* frequency — a deliberately unmodulated high-frequency control is the common case — then
+  `TI_max` reported an envelope that does not physically exist, and the montage order made no
+  difference to any reported number when physically it makes a large one. Re-run those with the
+  frequencies filled in and read `hf_peak` / `hf_sar`.
 
 ### v3.0.0 — September 20, 2026 (Latest Release)
 

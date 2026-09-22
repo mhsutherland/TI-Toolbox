@@ -215,6 +215,25 @@ under **Electrodes → Count**. The default **4 electrodes (TI)** uses two chann
 - Disables the **Combine ROIs** checkbox only. Saved spherical, atlas-region and imported-mask targets remain available: `MExConfig` carries `roi_names` and `roi_atlas` exactly as `ExConfig` does, so an mTI run can target a sphere, an atlas region, or an atlas region alone. Combining stays TI-only because the multipolar run path processes selected spheres one at a time.
 - Submits a `mex` job through the shared run controls. Follow its Terminal log or stop it from Jobs.
 
+### Carrier frequency and phase (mTI only)
+
+The **Carriers** section takes a **frequency** (Hz) and a **phase** (°) for each of the four bipolar pairs, beside the pair current. Leave them blank — the default — and the search keeps the positional wiring it has always used: each pair on its own carrier, pairs 1&2 beating and pairs 3&4 beating. Every mTI run made before these fields existed means exactly that, so an untouched form ranks candidates as it always did.
+
+Filling them in lets you search a wiring the positional model cannot express. The useful case is **two pairs sharing each carrier** — `2000, 2000, 2010, 2010` — where the two fields on one frequency add as vectors before anything beats, so the electrode order *within* those pairs starts to matter. A 180° phase is exactly a polarity reversal, so you can write that either way round. The section states the derived wiring in words, e.g. `4 channels · 2 frequencies · 1 carrier pair · Δf = 10 Hz · coherent sum (electrode order matters)`.
+
+Unlike the Simulator, the optimizer treats frequency as a **fixed input**: it honours the physics your assignment implies, but never searches over it. Two assignments are refused before the run starts, because the ranking they produce would be meaningless or undefined:
+
+- **No difference frequency** (every pair on one carrier). There is no envelope to maximise, so every candidate would score exactly zero. Examine an unmodulated montage in the [Simulator]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers), where the carrier field is reported.
+- **More than one difference frequency**, or phases within a carrier that are neither equal nor 180° apart (an elliptically polarised carrier). Both are outside what the modulation-depth formula represents.
+
+**Pool mode** additionally refuses any non-positional wiring. Its enumeration keeps one montage per symmetry *class*, and those classes are derived from the positional, phase-aligned layout; under a different wiring, montages that are genuinely distinct would look equivalent and be skipped. Bucket mode has no such restriction — including with **Force left/right symmetry**, which only restricts *which* electrode combinations are generated and still scores each survivor with the real physics.
+
+### Why two-channel Ex-search has no such setting
+
+TI ex-search is deliberately left without a frequency control, and this is not an omission. Two channels are a single carrier, and a single-carrier envelope is **phase-invariant**: its modulation depth follows from the two field amplitudes and the angle between them, not from the carrier values (`tit/calc.py`'s `psi` is documented as "Ignored at K=1"). Distinct frequencies are assumed, and no value you could enter would reorder the results. The only other assignment — both channels on one frequency — has no envelope at all and is refused for the same reason as above. mTI differs because four channels are two carriers, where the relative envelope phase does enter the modulation depth.
+
+Scripts can still set `frequencies_hz` / `phases_deg` on `ExConfig`, and the physics is honoured; it simply cannot change the ranking.
+
 ### Candidate enumeration
 
 - **Bucket mode** (default): the full Cartesian product of the eight buckets, keeping only tuples where all 8 electrode names are distinct (`len(set(electrodes)) == 8`).

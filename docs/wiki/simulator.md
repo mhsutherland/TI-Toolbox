@@ -110,9 +110,35 @@ data["nets"][eeg_net]["uni_polar_montages"][name]   = [[e1,e2],[e3,e4]]
 
 #### Channels and Carriers
 
-The assignment is always positional: each two consecutive electrodes in the montage compose a channel, and each two consecutive channels compose a carrier. For an 8-electrode montage that means channels A & B share the first carrier and channels C & D the second — there is no wiring choice to make.
+**By default the assignment is positional**: each two consecutive electrodes in the montage compose a channel, and each two consecutive channels compose a carrier. For an 8-electrode montage that means channels A & B share the first carrier and channels C & D the second. Leave the frequency fields blank and this is exactly what you get — the behaviour of every version before 3.1, unchanged.
 
-The kHz-exposure safety metrics `hf_peak`/`hf_sar` include every channel field under the shipped positional wiring (one field per carrier). Their math lives under [Safety Metrics on the Analyzer page]({{ site.baseurl }}/wiki/analyzer/#safety-metrics).
+Positional pairing is an *assumption*, though: it takes every pair to be driven at its own distinct frequency. If your stimulator does something else, the assumption is wrong in a way the output does not show. Fill in the per-channel **Frequency** (Hz) and **Phase** (°) fields and the toolbox derives the wiring instead of assuming it.
+
+##### Why the frequency changes the answer
+
+Two channels at *different* frequencies beat, and the envelope depends only on the two amplitudes and the angle between them — not on which electrode of a pair is the anode. That is why `+/- +/-` and `+/- -/+` give the same `TI_max`, and for a genuine TI montage that is correct.
+
+Two channels at the *same* frequency do not beat at all. They superpose instant by instant, as `(E₁ ± E₂)·cos ωt`, so:
+
+- there is **no modulation envelope** — `TI_max` is zero everywhere, which is a physical result and not a failed run; and
+- the **order of the electrodes now matters**: `+/- +/-` adds the two fields, `+/- -/+` subtracts them. For two equal aligned fields that is the difference between twice the amplitude and nothing at all.
+
+This matters even when you are not trying to produce an envelope. There is evidence that unmodulated kHz carriers affect neural activity, so a montage with no difference frequency is not a null condition — its carrier field is the thing to look at. With frequencies set, the toolbox warns when you have asked for `TI_max` alone in that case, because the map will be blank; select `hf_peak` or `hf_sar` to see the field that is actually delivered.
+
+##### What the toolbox does with the frequencies
+
+Channels sharing a frequency are summed **as vectors first** (a 180° phase is exactly a polarity reversal, so you can write a reversal either way round). The remaining distinct frequencies are then paired by their difference frequency; anything with no partner contributes carrier power but no envelope. The job row shows the result in words — for example `2 channels · 2 frequencies · 1 carrier pair · Δf = 10 Hz`, or `2 channels · 1 frequency · no modulation (TI_max = 0) · coherent sum (electrode order matters)`.
+
+Two assignments are **refused rather than approximated**, because the envelope is defined for a single difference frequency and for carriers with a real amplitude vector:
+
+- frequencies implying more than one difference frequency (e.g. 2000 / 2010 / 2020 Hz beats at both 10 and 20 Hz); and
+- channels on one frequency whose phases are neither equal nor 180° apart, which sum to an elliptically polarised carrier. Exposure metrics stay exact for that case; only the envelope is refused.
+
+##### What frequency does *not* change
+
+The FEM is solved once, quasi-statically, with a single set of tissue conductivities. **Entering different frequencies does not give those carriers different conductivities** — dielectric dispersion is not modelled. Across a ~10 Hz difference frequency that is entirely negligible; across mTI carriers separated by kilohertz it is a real approximation. This was equally true before the fields existed; it is stated here because now that a frequency can be typed, it is natural to assume otherwise. Frequency also carries no neural model: the toolbox reports fields, not responses.
+
+The kHz-exposure safety metrics `hf_peak`/`hf_sar` cover every channel. Without frequencies they treat each channel field as its own carrier, as before; with them, channels sharing a frequency are summed coherently first. Their math lives under [Safety Metrics on the Analyzer page]({{ site.baseurl }}/wiki/analyzer/#safety-metrics).
 
 #### Simulator Behavior for mTI
 

@@ -81,13 +81,15 @@ $$
 \mathrm{MD} = \sqrt{2} \left( \sqrt{P + Q} - \sqrt{P - Q} \right)
 $$
 
-$$\psi_k$$ is a per-carrier envelope phase offset (radians), `None` by default (all carriers phase-aligned, $$\psi_k = 0$$, the standard case). $$P - Q$$ and $$P + Q$$ are clamped to $$\ge 0$$ before the square roots to absorb floating-point round-off. This is implemented in `tit/calc.py`, whose public API is exactly three functions:
+$$\psi_k$$ is a per-carrier envelope phase offset (radians), `None` by default (all carriers phase-aligned, $$\psi_k = 0$$, the standard case). When a run declares [per-channel phases]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers), $$\psi_k$$ is the phase of carrier $$k$$'s high channel minus that of its low one. $$P - Q$$ and $$P + Q$$ are clamped to $$\ge 0$$ before the square roots to absorb floating-point round-off. This is implemented in `tit/calc.py`, whose public API is exactly three functions:
 
 | Function                                    | Purpose                                                                                 |
 | ------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `get_TI_vectors(fields, psi=None)`         | Modulation-amplitude vectors for $$K \ge 1$$ carriers ($$K = 1$$ exact closed form, $$K \ge 2$$ direction search) |
 | `get_TI_avg(fields, psi=None)`              | Direction-averaged modulation depth                                                     |
 | `get_TI_dir(fields, directions, psi=None)` | Envelope along a fixed per-element direction; backs `TI_normal` for mTI                 |
+
+A carrier with **no beat partner** is expressed by pairing it with a zero field: it then raises the total power $$P$$ and contributes nothing to $$Q$$, which is exactly what a non-beating carrier does physically. That is how a montage driven at a single frequency reaches a modulation depth of exactly zero without any change to this API — `tit.wiring` builds the pair; see [Channels and Carriers]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers).
 
 **`get_TI_vectors`** is the one envelope function; standard TI simulation, mTI simulation and mex-search all call it. It takes `fields = [E_1a, E_1b, ..., E_Ka, E_Kb]` -- one array of shape `(N, 3)` per channel, ordered so that consecutive fields are the two channels sharing a carrier -- and returns `(N, 3)` modulation-amplitude vectors whose norm is $$\mathrm{MD}$$.
 
@@ -137,7 +139,25 @@ $$
 
 This is a field-domain heating proxy, **not** calibrated SAR: the actual calibration is $$\tfrac{\sigma}{2\rho} \cdot \mathrm{hf\_sar}$$, requiring the per-tissue conductivity $$\sigma$$ and density $$\rho$$ that the toolbox does not apply.
 
-Under the shipped positional wiring, each field is one carrier, so both metrics include **every** channel field. Shared-frequency fields would require coherent vector summation first. Both metrics are **opt-in**: neither is in `SimulationConfig.output_fields`'s default (`["TI_max"]`), so a run must explicitly request `hf_peak`/`hf_sar` to get them written.
+#### What counts as one carrier
+
+Both formulas above sum over *carriers*, and which fields are one carrier depends on the drive. Without per-channel frequencies the toolbox reads the montage positionally — each channel field is its own carrier, at its own distinct frequency — which is how every run before 3.1 was computed and how an unannotated montage is still computed.
+
+Give the run [per-channel frequencies]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers) and the rule the metrics were always stated under is applied properly (Cassarà et al. 2025 Part II, p. 8: *"coherent field superposition was used for identical frequencies, and incoherent superposition (i.e., SAR addition) was used when the frequencies differed"*). Channels sharing a frequency are summed **as vectors first**, and only the per-frequency amplitudes then combine incoherently:
+
+$$
+\mathbf{A}_g = \sum_{i \in g} s_i \mathbf{E}_i,
+\qquad
+\mathrm{hf\_sar} = \sum_g \lVert \mathbf{A}_g \rVert^2,
+\qquad
+\mathrm{hf\_peak} = \max_{\mathbf{s}} \left\lVert \sum_g s_g \mathbf{A}_g \right\rVert
+$$
+
+with $$s_i = \pm 1$$ carrying a 180° phase, i.e. a polarity reversal. The consequence is that electrode order stops being free: for two equal aligned fields on one frequency, `hf_sar` is $$\lVert 2\mathbf{E} \rVert^2$$ one way round and $$0$$ the other, where the incoherent sum reports $$2\lVert \mathbf{E} \rVert^2$$ regardless. The sign maximisation runs over *frequencies*, not raw fields — within one frequency the relative phase is known, not worst-cased — so `EXACT_SIGN_ENUM_MAX_FIELDS` counts frequency groups, and `hf_peak_is_exact` takes the wiring.
+
+If channels on one frequency have phases that are neither equal nor 180° apart, they sum to an elliptically polarised carrier. Exposure stays exact there — $$\lVert \mathbf{A}_g \rVert^2$$ over both quadratures, and a direction sweep for the peak, which `hf_peak_is_exact` reports as a lower bound — while the modulation envelope is refused, because the $$(P, Q)$$ form is derived for carriers with a real amplitude vector.
+
+Both metrics are **opt-in**: neither is in `SimulationConfig.output_fields`'s default (`["TI_max"]`), so a run must explicitly request `hf_peak`/`hf_sar` to get them written.
 
 ### Spatial domain: how the analyzer summarises a field
 
