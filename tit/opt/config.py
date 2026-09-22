@@ -834,6 +834,74 @@ class FlexResult:
 # ── Exhaustive search config ─────────────────────────────────────────────────
 
 
+def _validate_optimizer_drive(frequencies_hz, phases_deg, n_pairs, label):
+    """Check an optimizer's carrier drive and return its wiring, or ``None``.
+
+    The optimizer treats frequency as a fixed input: it honours the physics the
+    assignment implies but never searches over it.  An assignment with no
+    difference frequency makes the envelope objective identically zero, so
+    every candidate would score the same -- that is rejected here rather than
+    producing a ranking with no meaning.
+
+    Parameters
+    ----------
+    frequencies_hz, phases_deg : list of float or None
+        Per-channel drive, one entry per electrode pair.
+    n_pairs : int
+        How many electrode pairs this search drives.
+    label : str
+        Config name, for error messages.
+
+    Returns
+    -------
+    tit.wiring.Wiring or None
+        ``None`` when no frequencies were given, which keeps the positional
+        reading the optimizers have always used.
+
+    Raises
+    ------
+    ValueError
+        If the drive arity is wrong, or the assignment leaves the envelope
+        objective undefined or identically zero.
+    """
+    if frequencies_hz is None:
+        if phases_deg is not None:
+            raise ValueError(
+                f"{label}: phases_deg was given without frequencies_hz. A "
+                "phase is only meaningful relative to a carrier frequency."
+            )
+        return None
+    for name, values in (
+        ("frequencies_hz", frequencies_hz),
+        ("phases_deg", phases_deg),
+    ):
+        if values is not None and len(values) != n_pairs:
+            raise ValueError(
+                f"{label}: this search drives {n_pairs} electrode pairs but "
+                f"{len(values)} {name} were given; one per pair is required."
+            )
+
+    from tit.wiring import derive_wiring
+
+    wiring = derive_wiring(frequencies_hz, phases_deg)
+    if not wiring.has_modulation:
+        raise ValueError(
+            f"{label}: these frequencies produce no difference frequency "
+            f"({wiring.describe()}), so the modulation envelope is identically "
+            "zero and every candidate montage would score the same. The "
+            "optimizer maximises the envelope; give the channels frequencies "
+            "that beat, or run the montage through the Simulator instead, "
+            "where the carrier field is reported."
+        )
+    if not wiring.is_real:
+        raise ValueError(
+            f"{label}: the channels' phases sum to an elliptically polarised "
+            "carrier, which the modulation envelope is not defined for. Use "
+            "phases 0 or 180 degrees apart within one frequency."
+        )
+    return wiring
+
+
 @dataclass
 class ExConfig:
     """Full configuration for exhaustive search optimization.
@@ -1043,6 +1111,13 @@ class ExConfig:
     symmetry_eeg_csv: str | None = None
     symmetry_pairing: str = "within_pairs"
 
+    # ── Carrier drive, one entry per channel (see tit.wiring) ───────────
+    # None keeps the positional reading: each pair its own frequency,
+    # consecutive pairs beating. Frequency is a fixed input here -- the
+    # search honours it but never varies it.
+    frequencies_hz: list[float] | None = None
+    phases_deg: list[float] | None = None
+
     def __post_init__(self):
         if isinstance(self.electrodes, dict):
             if "electrodes" in self.electrodes:
@@ -1085,6 +1160,17 @@ class ExConfig:
             raise ValueError("symmetric_bucket is only supported for bucket electrodes")
         if self.symmetry_pairing not in ("within_pairs", "cross_pairs"):
             raise ValueError("symmetry_pairing must be 'within_pairs' or 'cross_pairs'")
+
+        _validate_optimizer_drive(
+            self.frequencies_hz, self.phases_deg, 2, "ExConfig"
+        )
+
+    @property
+    def carrier_wiring(self):
+        """The derived carrier structure, or ``None`` when none was configured."""
+        return _validate_optimizer_drive(
+            self.frequencies_hz, self.phases_deg, 2, "ExConfig"
+        )
 
 
 @dataclass
@@ -1307,6 +1393,13 @@ class MExConfig:
     symmetry_eeg_csv: str | None = None
     symmetry_pairing: str = "within_pairs"
 
+    # ── Carrier drive, one entry per channel (see tit.wiring) ───────────
+    # None keeps the positional reading: each pair its own frequency,
+    # consecutive pairs beating. Frequency is a fixed input here -- the
+    # search honours it but never varies it.
+    frequencies_hz: list[float] | None = None
+    phases_deg: list[float] | None = None
+
     def __post_init__(self):
         if isinstance(self.electrodes, dict):
             if "electrodes" in self.electrodes:
@@ -1344,6 +1437,35 @@ class MExConfig:
             raise ValueError("symmetric_bucket is only supported for bucket electrodes")
         if self.symmetry_pairing not in ("within_pairs", "cross_pairs"):
             raise ValueError("symmetry_pairing must be 'within_pairs' or 'cross_pairs'")
+
+        wiring = _validate_optimizer_drive(
+            self.frequencies_hz, self.phases_deg, 4, "MExConfig"
+        )
+        if (
+            wiring is not None
+            and not wiring.is_positional()
+            and isinstance(self.electrodes, MExConfig.PoolElectrodes)
+        ):
+            # Pool mode enumerates one montage per symmetry class, and those
+            # classes are derived from the positional channel layout with every
+            # envelope phase-aligned (see tit/opt/mex/logic.py). A wiring that
+            # departs from it makes genuinely distinct montages look equivalent,
+            # so the search would silently skip candidates.
+            raise ValueError(
+                "MExConfig: pool-mode search collapses montages using symmetry "
+                "classes that assume consecutive channels beat and every "
+                "envelope is phase-aligned. This carrier wiring "
+                f"({wiring.describe()}) breaks that assumption, so pool mode "
+                "would discard candidates that are not actually equivalent. "
+                "Use bucket electrodes for this wiring."
+            )
+
+    @property
+    def carrier_wiring(self):
+        """The derived carrier structure, or ``None`` when none was configured."""
+        return _validate_optimizer_drive(
+            self.frequencies_hz, self.phases_deg, 4, "MExConfig"
+        )
 
 
 @dataclass

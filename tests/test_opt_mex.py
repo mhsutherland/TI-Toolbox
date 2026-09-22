@@ -921,3 +921,117 @@ class TestInferSymmetryEegCsv:
                 return str(tmp_path / "missing")
 
         assert resolve_eeg_positions_csv(cfg, PM()) == csv
+
+
+class TestMExCarrierDrive:
+    """`frequencies_hz` / `phases_deg` on MExConfig, and which searches accept them.
+
+    The guard is deliberately narrow, and this pins *why*. Pool mode enumerates one montage per
+    symmetry *class*, and those classes come from the envelope's invariances under the positional,
+    phase-aligned layout (``tit/opt/mex/logic.py``) -- a different wiring makes genuinely distinct
+    montages look equivalent, so candidates would be silently skipped. Bucket mode, with or without
+    ``symmetric_bucket``, only *restricts* which electrode combinations are generated; every
+    surviving candidate is still scored with the real physics, so no wiring can invalidate it.
+    """
+
+    BUCKETS = {
+        f"e{i}_{pole}": [f"E{i}{pole[0]}"]
+        for i in range(1, 5)
+        for pole in ("plus", "minus")
+    }
+
+    def _cfg(self, **kwargs):
+        from tit.opt.config import MExConfig
+
+        kwargs.setdefault("electrodes", MExConfig.BucketElectrodes(**self.BUCKETS))
+        return MExConfig(
+            subject_id="ernie",
+            leadfield_hdf="/lf/ernie_leadfield_GSN-HydroCel-185.hdf5",
+            roi_name="roi.csv",
+            **kwargs,
+        )
+
+    def test_no_frequencies_keeps_the_positional_reading(self):
+        assert self._cfg().carrier_wiring is None
+
+    def test_positional_frequencies_resolve_to_two_carriers(self):
+        wiring = self._cfg(
+            frequencies_hz=[2000.0, 2010.0, 4000.0, 4010.0]
+        ).carrier_wiring
+        assert len(wiring.beat_pairs) == 2
+        assert wiring.is_positional()
+        assert not wiring.has_coherent_sum
+
+    def test_shared_carrier_is_accepted_in_bucket_mode(self):
+        # Two pairs on each carrier -- the wiring the positional model could not express.
+        wiring = self._cfg(
+            frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0]
+        ).carrier_wiring
+        assert len(wiring.groups) == 2
+        assert len(wiring.beat_pairs) == 1
+        assert wiring.has_coherent_sum
+        assert not wiring.is_positional()
+
+    def test_symmetric_bucket_search_accepts_a_shared_carrier(self):
+        # Bucket symmetry narrows the candidate set geometrically; it collapses no
+        # equivalence classes, so it stays valid under any wiring.
+        cfg = self._cfg(
+            symmetric_bucket=True,
+            frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
+        )
+        assert cfg.carrier_wiring.has_coherent_sum
+
+    def test_pool_mode_refuses_a_non_positional_wiring(self):
+        from tit.opt.config import MExConfig
+
+        with pytest.raises(ValueError, match="pool-mode search collapses montages"):
+            self._cfg(
+                electrodes=MExConfig.PoolElectrodes(
+                    electrodes=[f"E{i}" for i in range(8)]
+                ),
+                frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
+            )
+
+    def test_pool_mode_accepts_the_positional_wiring(self):
+        from tit.opt.config import MExConfig
+
+        cfg = self._cfg(
+            electrodes=MExConfig.PoolElectrodes(electrodes=[f"E{i}" for i in range(8)]),
+            frequencies_hz=[2000.0, 2010.0, 4000.0, 4010.0],
+        )
+        assert cfg.carrier_wiring.is_positional()
+
+    def test_no_difference_frequency_is_refused(self):
+        # Every candidate would score exactly zero, so the ranking would be meaningless.
+        with pytest.raises(ValueError, match="no difference frequency"):
+            self._cfg(frequencies_hz=[2000.0] * 4)
+
+    def test_elliptical_carrier_is_refused(self):
+        with pytest.raises(ValueError, match="elliptically polarised"):
+            self._cfg(
+                frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
+                phases_deg=[0.0, 90.0, 0.0, 0.0],
+            )
+
+    def test_wrong_arity_is_refused(self):
+        with pytest.raises(ValueError, match="drives 4 electrode pairs"):
+            self._cfg(frequencies_hz=[2000.0, 2010.0])
+
+    def test_phases_without_frequencies_are_refused(self):
+        with pytest.raises(ValueError, match="without frequencies_hz"):
+            self._cfg(phases_deg=[0.0, 180.0, 0.0, 0.0])
+
+    def test_drive_round_trips_through_config_io(self):
+        from tit.config_io import deserialize_config, serialize_config
+        from tit.opt.config import MExConfig
+
+        cfg = self._cfg(
+            frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
+            phases_deg=[0.0, 180.0, 0.0, 0.0],
+        )
+        data = serialize_config(cfg)
+        assert data["frequencies_hz"] == [2000.0, 2000.0, 2010.0, 2010.0]
+        assert data["phases_deg"] == [0.0, 180.0, 0.0, 0.0]
+        back = deserialize_config(MExConfig, data)
+        assert back.frequencies_hz == cfg.frequencies_hz
+        assert back.phases_deg == cfg.phases_deg

@@ -171,7 +171,13 @@ def _run_m_ex_search_inner(config: MExConfig) -> MExResult:
         pm.leadfields(config.subject_id), config.leadfield_hdf
     )
 
-    engine = MExSearchEngine(leadfield_path, roi_target, config.roi_name, logger)
+    engine = MExSearchEngine(
+        leadfield_path,
+        roi_target,
+        config.roi_name,
+        logger,
+        wiring=config.carrier_wiring,
+    )
     engine.initialize(roi_radius=config.roi_radius)
     results = engine.run(
         buckets_or_pool,

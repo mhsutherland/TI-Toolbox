@@ -178,7 +178,13 @@ def _run_ex_search_inner(config: ExConfig) -> ExResult:
         pm.leadfields(config.subject_id), config.leadfield_hdf
     )
 
-    engine = ExSearchEngine(leadfield_path, roi_files, config.roi_name, logger)
+    engine = ExSearchEngine(
+        leadfield_path,
+        roi_files,
+        config.roi_name,
+        logger,
+        wiring=config.carrier_wiring,
+    )
     engine.initialize(roi_radius=config.roi_radius)
 
     results = engine.run(

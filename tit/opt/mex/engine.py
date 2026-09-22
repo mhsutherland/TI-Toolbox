@@ -9,6 +9,7 @@ import numpy as np
 from simnibs.utils import TI_utils as TI
 
 from tit.calc import get_TI_vectors
+from tit.wiring import envelope_inputs
 from tit.opt.ex.engine import ExSearchEngine
 from tit.opt.ex.parallel import evaluate_ordered, resolve_n_jobs
 
@@ -30,8 +31,9 @@ class MExSearchEngine(ExSearchEngine):
         roi_file: str | tuple[str, int] | list[str | tuple[str, int]],
         roi_name: str,
         logger: logging.Logger,
+        wiring=None,
     ):
-        super().__init__(leadfield_hdf, roi_file, roi_name, logger)
+        super().__init__(leadfield_hdf, roi_file, roi_name, logger, wiring=wiring)
 
     def compute_mti_field(
         self,
@@ -54,7 +56,11 @@ class MExSearchEngine(ExSearchEngine):
             for idx in range(0, 8, 2)
         ]
 
-        vectors = get_TI_vectors(fields)
+        if self.wiring is None:
+            vectors = get_TI_vectors(fields)
+        else:
+            paired, psi, unpaired = envelope_inputs(fields, self.wiring)
+            vectors = get_TI_vectors(paired, psi=psi, unpaired=unpaired)
         metric = np.linalg.norm(vectors, axis=1)
 
         data = self._roi_metrics(metric[roi_pos], metric[gm_pos])

@@ -14,6 +14,9 @@ from pathlib import Path
 import numpy as np
 from simnibs.utils import TI_utils as TI
 
+from tit.calc import get_TI_vectors
+from tit.wiring import envelope_inputs
+
 from .roi import read_roi_center
 from .logic import (
     _electrode_combinations,
@@ -37,11 +40,15 @@ class ExSearchEngine:
         roi_file: str | tuple[str, int] | list[str | tuple[str, int]],
         roi_name: str,
         logger: logging.Logger,
+        wiring=None,
     ):
         self.leadfield_hdf = leadfield_hdf
         self.roi_file = roi_file
         self.roi_name = roi_name
         self.logger = logger
+        # Carrier wiring, when the run declared frequencies. `None` keeps the
+        # positional reading: two channels, two distinct frequencies, one beat.
+        self.wiring = wiring
 
         self.leadfield = None
         self.mesh = None
@@ -267,7 +274,15 @@ class ExSearchEngine:
         for current_ch1_mA, current_ch2_mA in current_ratios:
             ef1 = (current_ch1_mA / 1000) * unit1
             ef2 = (current_ch2_mA / 1000) * unit2
-            ti_max = TI.get_maxTI(ef1, ef2)
+            if self.wiring is None:
+                ti_max = TI.get_maxTI(ef1, ef2)
+            else:
+                # The sign-agnostic closed form cannot represent a shared
+                # carrier; the wired path goes through the (P, Q) envelope.
+                paired, psi, unpaired = envelope_inputs([ef1, ef2], self.wiring)
+                ti_max = np.linalg.norm(
+                    get_TI_vectors(paired, psi=psi, unpaired=unpaired), axis=1
+                )
             data = self._roi_metrics(ti_max[roi_pos], ti_max[gm_pos])
             data["current_ch1_mA"] = current_ch1_mA
             data["current_ch2_mA"] = current_ch2_mA
