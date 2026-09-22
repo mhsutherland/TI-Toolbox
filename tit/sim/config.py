@@ -423,6 +423,13 @@ class SimulationConfig:
     aniso_maxcond: float = 2.0
     output_fields: list[str] = field(default_factory=lambda: [const.FIELD_TI_MAX])
     tissue_conductivities: dict[int, float] | None = None
+    # Carrier drive, one entry per electrode pair, aligned with `intensities`.
+    # Both default to None, which keeps the positional reading: every pair is
+    # assumed to sit at its own distinct frequency and consecutive pairs beat.
+    # Supplying frequencies replaces that assumption with a derived wiring
+    # (`tit.wiring`), which is the only way to express two pairs on one carrier.
+    frequencies_hz: list[float] | None = None
+    phases_deg: list[float] | None = None
 
     def __post_init__(self):
         if self.conductivity not in _VALID_CONDUCTIVITIES:
@@ -456,7 +463,7 @@ class SimulationConfig:
                         "each pair must contain exactly two electrodes."
                     )
             try:
-                mode = montage.simulation_mode
+                mode = self.simulation_mode_for(montage)
             except ValueError:
                 # A pair count `simulation_mode` cannot classify (1, 3, ...) is left exactly
                 # where it was: `run_simulation` raises on it. Deciding it here instead would
@@ -469,6 +476,8 @@ class SimulationConfig:
                     f"Montage {montage.name!r} requires {required} current "
                     f"intensities; got {len(self.intensities)}."
                 )
+
+        self._validate_carrier_drive()
 
         if self.tissue_conductivities is not None:
             # JSON object keys are always strings; deserialize_config coerces them back
@@ -485,6 +494,109 @@ class SimulationConfig:
                     "tissue_conductivities values must be > 0 S/m; got "
                     f"{non_positive}"
                 )
+
+
+    def simulation_mode_for(self, montage: Montage) -> SimulationMode:
+        """Which simulation pipeline runs *montage* under this config.
+
+        Without frequencies the montage decides and the even-count rule holds:
+        pairing is positional, so every pair needs a partner to beat against
+        and an odd count is a contradiction.
+
+        With frequencies the wiring decides what beats, and an odd pair count
+        is no longer a contradiction -- three pairs can be one beating carrier
+        plus one that does not beat at all.  The even-count rule described the
+        positional model, which such a montage is not using.  Anything other
+        than exactly two pairs runs through the N-generic mTI pipeline.
+
+        Parameters
+        ----------
+        montage : Montage
+            One of this config's montages.
+
+        Returns
+        -------
+        SimulationMode
+
+        Raises
+        ------
+        ValueError
+            If the pair count is below `tit.constants.MIN_ELECTRODE_PAIRS`, or
+            -- without frequencies -- is not allowed by
+            `tit.constants.is_valid_pair_count`.
+        """
+        if self.frequencies_hz is None:
+            return montage.simulation_mode
+        n = montage.num_pairs
+        if n < const.MIN_ELECTRODE_PAIRS:
+            raise ValueError(
+                f"Invalid number of electrode pairs: {n}. At least "
+                f"{const.MIN_ELECTRODE_PAIRS} are required; one pair is tACS, "
+                "not TI."
+            )
+        return (
+            SimulationMode.TI if n == const.TI_ELECTRODE_PAIRS else SimulationMode.MTI
+        )
+
+    def _validate_carrier_drive(self):
+        """Check `frequencies_hz` / `phases_deg` against the montages.
+
+        Arity only: whether the *structure* those frequencies imply is one the
+        field math can represent is `tit.wiring.derive_wiring`'s judgement, and
+        it is made there so there is one copy of it.
+
+        Raises
+        ------
+        ValueError
+            If phases are given without frequencies, or either list does not
+            carry one entry per electrode pair of every montage.
+        """
+        if self.frequencies_hz is None:
+            if self.phases_deg is not None:
+                raise ValueError(
+                    "phases_deg was given without frequencies_hz. A phase is "
+                    "only meaningful relative to a carrier frequency; supply "
+                    "frequencies_hz as well, or neither."
+                )
+            return
+
+        for name, values in (
+            ("frequencies_hz", self.frequencies_hz),
+            ("phases_deg", self.phases_deg),
+        ):
+            if values is None:
+                continue
+            for montage in self.montages:
+                if len(values) != montage.num_pairs:
+                    raise ValueError(
+                        f"Montage {montage.name!r} has {montage.num_pairs} "
+                        f"electrode pairs but {len(values)} {name} were given; "
+                        "one per pair is required."
+                    )
+
+    @property
+    def carrier_wiring(self):
+        """The derived carrier structure, or ``None`` when none was configured.
+
+        ``None`` is the signal to every consumer to keep the positional
+        reading, which is what every config written before frequencies existed
+        means.
+
+        Returns
+        -------
+        tit.wiring.Wiring or None
+
+        Raises
+        ------
+        tit.wiring.WiringError
+            If the frequencies describe a structure the field math cannot
+            represent.
+        """
+        if self.frequencies_hz is None:
+            return None
+        from tit.wiring import derive_wiring
+
+        return derive_wiring(self.frequencies_hz, self.phases_deg)
 
 
 def parse_intensities(s: str) -> list[float]:
