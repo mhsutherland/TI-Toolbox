@@ -69,7 +69,9 @@ export const MEX_CARRIER_HELP =
   "each carrier (2000, 2000, 2010, 2010), where the two fields on one frequency add as vectors " +
   "and the electrode order within those pairs starts to matter.\n\n" +
   "Phase is the drive phase of each source; 180 degrees is exactly a polarity reversal. Unlike " +
-  "Ex, this changes the result: with two carriers the envelope phase enters the modulation depth.";
+  "Ex, this changes the result: with two carriers the envelope phase enters the modulation depth.\n\n" +
+  "Each pair runs at its own current. The search ranks electrodes at the currents you set and " +
+  "never varies them, so unbalanced pairs can rank montages differently from equal ones.";
 
 export interface ExFormState {
   electrodeMode: "bucketed" | "all";
@@ -82,7 +84,6 @@ export interface ExFormState {
 
 export interface MExFormState {
   buckets: Record<string, string[]>;
-  currentMa: number;
   symmetricBucket: boolean;
   symmetryPairing: "within_pairs" | "cross_pairs";
   /**
@@ -99,6 +100,14 @@ export interface MExFormState {
   frequencies: (number | null)[];
   /** Per-channel drive phase (degrees); `null` means 0. 180 is a polarity reversal. */
   phases: (number | null)[];
+  /**
+   * Per-pair current (mA), one per bipolar pair — the only current control mEx has.
+   *
+   * A fixed input, like frequency: the search ranks electrodes at these currents and never varies
+   * them. The default, 2.0 mA on every pair, is the single shared current every mEx run before
+   * this field used.
+   */
+  currents: number[];
 }
 
 export function defaultExFormState(): ExFormState {
@@ -115,11 +124,11 @@ export function defaultExFormState(): ExFormState {
 export function defaultMExFormState(): MExFormState {
   return {
     buckets: Object.fromEntries(MEX_BUCKET_KEYS.map((k) => [k, []])),
-    currentMa: 2.0,
     symmetricBucket: false,
     symmetryPairing: "within_pairs",
     frequencies: [null, null, null, null],
     phases: [null, null, null, null],
+    currents: [2.0, 2.0, 2.0, 2.0],
   };
 }
 /** How many bipolar pairs an mEx search drives — four, one per `e{n}_plus`/`e{n}_minus` bucket. */
@@ -144,6 +153,24 @@ export function mexCarrierDrive(form: MExFormState): {
     frequencies_hz: form.frequencies as number[],
     phases_deg: Array.from({ length: MEX_CHANNELS }, (_, i) => form.phases[i] ?? 0),
   };
+}
+
+/** The current each pair runs at (mA), in pair order. */
+export function mexPairCurrents(form: MExFormState): number[] {
+  return Array.from({ length: MEX_CHANNELS }, (_, i) => form.currents[i] ?? 2.0);
+}
+
+/**
+ * `MExConfig.current_mA` / `currents_mA` for this form.
+ *
+ * Equal currents go as the single `current_mA` they always were, so run names and saved configs
+ * of an equal-current run are unchanged. Unequal ones go as `currents_mA`, which the server uses
+ * in place of `current_mA`; `current_mA` then only has to be a valid positive value.
+ */
+export function mexCurrentsPayload(form: MExFormState): { current_mA: number; currents_mA: number[] | null } {
+  const currents = mexPairCurrents(form);
+  const first = currents[0] ?? 2.0;
+  return { current_mA: first, currents_mA: currents.every((c) => c === first) ? null : currents };
 }
 
 /** One resolved ex/mEx run target: what `roi_name` / `roi_names` / `roi_atlas` will carry. */
@@ -273,7 +300,7 @@ export function buildMExConfig(
       e4_minus: form.buckets.e4_minus ?? [],
       _type: "BucketElectrodes",
     },
-    current_mA: form.currentMa,
+    ...mexCurrentsPayload(form),
     roi_radius: target.radius,
     roi_names: target.roiNames,
     roi_atlas: target.roiAtlas?.map((roi) => ({ ...roi, atlas_space: roi.atlas_space ?? "subject" })) ?? null,

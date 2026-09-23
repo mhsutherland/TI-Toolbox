@@ -25,6 +25,7 @@ tit.opt.ex.ex.run_ex_search : Consumes :class:`ExConfig`.
 tit.opt.mex.mex.run_m_ex_search : Consumes :class:`MExConfig`.
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
@@ -1233,6 +1234,12 @@ class MExConfig:
         ``__post_init__``.
     current_mA : float
         Current in mA delivered by each of the four pairs.  Default ``2.0``.
+        Superseded by *currents_mA* when that is set.
+    currents_mA : list of float or None
+        Fixed current in mA for each of the four pairs, in pair order.
+        ``None`` (default) drives every pair at *current_mA*.  The search
+        honours these values but never varies them -- unlike Ex's split
+        search.  Unequal values require bucket electrodes (see Raises).
     roi_radius : float
         Spherical ROI radius in mm for the target region.  Default ``3.0``.
     roi_names : list of str or None
@@ -1272,8 +1279,9 @@ class MExConfig:
     Raises
     ------
     ValueError
-        If *current_mA* is non-positive, if *symmetric_bucket* is set
-        with pool electrodes, if *symmetry_pairing* is not one of
+        If *current_mA* is non-positive, if *currents_mA* is not four finite
+        positive values or is unequal with pool electrodes, if
+        *symmetric_bucket* is set with pool electrodes, if *symmetry_pairing* is not one of
         ``"within_pairs"``/``"cross_pairs"``, or if *roi_coordinate_space*
         is not ``"subject"`` or ``"mni"``.
 
@@ -1398,6 +1406,11 @@ class MExConfig:
     frequencies_hz: list[float] | None = None
     phases_deg: list[float] | None = None
 
+    # ── Per-pair current, one entry per pair ─────────────────────────────
+    # None drives every pair at current_mA. Last, so positional construction
+    # keeps its meaning. A fixed input, like frequency: never searched.
+    currents_mA: list[float] | None = None
+
     def __post_init__(self):
         if isinstance(self.electrodes, dict):
             if "electrodes" in self.electrodes:
@@ -1429,6 +1442,31 @@ class MExConfig:
 
         if self.current_mA <= 0:
             raise ValueError("current_mA must be positive")
+        if self.currents_mA is not None:
+            currents = [float(c) for c in self.currents_mA]
+            if len(currents) != 4:
+                raise ValueError(
+                    f"MExConfig: currents_mA needs one value per pair (4), got {len(currents)}"
+                )
+            if not all(math.isfinite(c) and c > 0 for c in currents):
+                raise ValueError(
+                    f"MExConfig: every currents_mA entry must be positive, got {currents}"
+                )
+            self.currents_mA = currents
+            if len(set(currents)) > 1 and isinstance(
+                self.electrodes, MExConfig.PoolElectrodes
+            ):
+                # Pool mode keeps one montage per class of slot permutations
+                # (tit/opt/mex/logic.py), which is only a symmetry while every
+                # slot carries the same current. Unequal currents make those
+                # permutations distinct montages.
+                raise ValueError(
+                    "MExConfig: pool-mode search treats the four pair slots as "
+                    "interchangeable, which unequal per-pair currents "
+                    f"({currents} mA) are not, so it would discard candidates "
+                    "that are not actually equivalent. Use bucket electrodes "
+                    "for unequal currents."
+                )
         if self.symmetric_bucket and isinstance(
             self.electrodes, MExConfig.PoolElectrodes
         ):
@@ -1464,6 +1502,13 @@ class MExConfig:
         return _validate_optimizer_drive(
             self.frequencies_hz, self.phases_deg, 4, "MExConfig"
         )
+
+    @property
+    def pair_currents_mA(self) -> tuple[float, float, float, float]:
+        """The current each pair is driven at, in pair order (mA)."""
+        if self.currents_mA is None:
+            return (float(self.current_mA),) * 4
+        return tuple(self.currents_mA)
 
 
 @dataclass

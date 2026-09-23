@@ -140,6 +140,15 @@ export function parseExRunConfig(text: string): ExRunSummary | undefined {
   const limit = num(c.channel_limit_mA);
   if (limit !== undefined) rows.push({ label: "Channel limit", value: `${trimNumber(limit)} mA` });
 
+  // mEx: fixed currents, one value for every pair or one per pair.
+  const pairCurrents = Array.isArray(c.currents_mA) ? c.currents_mA.map(num) : undefined;
+  const pairCurrent = num(c.current_mA);
+  if (pairCurrents && pairCurrents.every((v) => v !== undefined)) {
+    rows.push({ label: "Current", value: `${pairCurrents.map((v) => trimNumber(v as number)).join(" / ")} mA per pair` });
+  } else if (pairCurrent !== undefined) {
+    rows.push({ label: "Current", value: `${trimNumber(pairCurrent)} mA per pair` });
+  }
+
   const created = formatDate(str(c.created) ?? str(c.created_at));
   if (created) rows.push({ label: "Created", value: created });
 

@@ -45,6 +45,17 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
   difference to any reported number when physically it makes a large one. Re-run those with the
   frequencies filled in and read `hf_peak` / `hf_sar`.
 
+- **mTI Ex-search takes a current per pair.** Each **Pair N carrier** row in the Optimizer's
+  Carriers section now has its own **mA** beside frequency and phase, replacing the single shared
+  **Pair current** field; every pair starts at 2.0 mA, so an untouched form runs exactly as before.
+  The search ranks electrodes at the currents you set and never varies them — two-channel Ex still
+  sweeps current splits, mTI does not. Unequal currents appear in the run name
+  (`…_I-2.0-2.0-1.0-3.0mA`), in `run_config.json` (`currents_mA`, in place of `current_mA`), and in
+  the results CSV, which now carries all four `Current_Ch<n>_mA` columns for mTI (previously only
+  Ch1/Ch2 were written). The Results preview states the pair currents, and "Simulate this
+  candidate" replays each pair's own current. From Python, `MExConfig(currents_mA=[…])`; pool-mode electrodes require equal currents.
+  See [Per-pair current]({{ site.baseurl }}/wiki/ex-search/#per-pair-current-mti-only).
+
 ### v3.0.0 — September 20, 2026 (Latest Release)
 
 v3 replaces the PyQt5 interface with an Electron desktop app backed by the same `tit` scientific

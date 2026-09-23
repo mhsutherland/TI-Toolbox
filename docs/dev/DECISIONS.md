@@ -53,6 +53,7 @@ rationale below consolidates later amendments without treating superseded design
 | 34 | 2026-09-19 | A job's CPU/RSS are its process tree's, sampled once a second; peak and average persist with the record; the Jobs table drops STAGE | live |
 | 35 | 2026-09-19 | The Artifacts tab lists the job's output folder from disk (`GET /api/jobs/{id}/artifacts`); a runner registers where it wrote, not what | live |
 | 36 | 2026-09-22 | **Carrier frequency and phase are explicit per channel; coherence is derived, not assumed.** Supersedes the positional carrier model (2026-09-07) as the *default*, which it keeps | live |
+| 37 | 2026-09-22 | mEx takes **fixed per-pair currents** (`MExConfig.currents_mA`); no mEx current-split search; pool mode refuses unequal currents | live |
 
 ## Runtime and distribution
 
@@ -422,6 +423,32 @@ misreading only now that a frequency can be typed; it is stated in the wiki.
 
 **Revisit if.** The envelope is generalised to elliptically polarised carriers, more than one
 difference frequency is needed, or dielectric dispersion is modelled in the FEM.
+
+### 2026-09-22 — Fixed per-pair currents in mEx
+
+**Decision.** `MExConfig.currents_mA` (four values, default `None`) drives each pair at its own
+current; `None` keeps `current_mA` on every pair, so existing configs, saved runs and result names
+are unchanged. The Optimizer's Carriers section takes an mA per pair beside frequency and phase, and
+the single shared "Pair current" field is removed, so there is one current control rather than a
+default and four overrides whose interaction the user had to infer. `run_config.json` records
+`currents_mA` in place of `current_mA` when set. The run name gains a per-pair suffix
+(`_I-2.0-2.0-1.0-3.0mA`) only when the currents differ, and the mEx CSV now writes all four
+`Current_Ch<n>_mA` columns (Ex keeps its two).
+
+**Why.** Two-channel Ex already searches current splits, because the balance between pairs changes
+the envelope and can reorder the ranking; mEx could only express equal currents, so a montage that
+wins with unbalanced pairs was unreachable. Scaling all four currents together only rescales every
+candidate and never reorders them, so the missing freedom was the *relative* current.
+
+**Alternatives.** A split search like Ex's was rejected for now: with four pairs the number of
+splits multiplies an already combinatorial electrode search (each four-pair candidate costs ~1 s),
+where fixed currents cost nothing extra. **Cost.** Pool mode refuses unequal currents: its symmetry
+classes (`tit/opt/mex/logic.py`) permute pair slots, which is only a symmetry while every slot
+carries the same current, the same reason it refuses a non-positional wiring. The Optimizer always
+submits mTI in bucket mode, so this binds only Python callers.
+
+**Revisit if.** A per-pair split search is wanted and can be made affordable, for example by
+restricting it to the top candidates of an equal-current run.
 
 ## Development milestones
 

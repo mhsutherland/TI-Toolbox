@@ -369,6 +369,77 @@ class TestMExConfigValidation:
                 current_mA=0.0,
             )
 
+    def test_pair_currents_default_to_current_mA(self):
+        from tit.opt.config import MExConfig
+
+        config = MExConfig(
+            subject_id="001",
+            leadfield_hdf="lf.hdf5",
+            roi_name="target",
+            electrodes=self._bucket_electrodes(),
+            current_mA=1.5,
+        )
+        assert config.currents_mA is None
+        assert config.pair_currents_mA == (1.5, 1.5, 1.5, 1.5)
+
+    def test_per_pair_currents_override_current_mA(self):
+        from tit.opt.config import MExConfig
+
+        config = MExConfig(
+            subject_id="001",
+            leadfield_hdf="lf.hdf5",
+            roi_name="target",
+            electrodes=self._bucket_electrodes(),
+            currents_mA=[2, 2, 1, 3],
+        )
+        assert config.pair_currents_mA == (2.0, 2.0, 1.0, 3.0)
+
+    @pytest.mark.parametrize(
+        "currents",
+        [
+            [2.0, 2.0, 2.0],
+            [2.0, 2.0, 2.0, 2.0, 2.0],
+            [2.0, 0.0, 2.0, 2.0],
+            [2.0, -1.0, 2.0, 2.0],
+            [2.0, math.nan, 2.0, 2.0],
+            [2.0, math.inf, 2.0, 2.0],
+        ],
+    )
+    def test_rejects_malformed_per_pair_currents(self, currents):
+        from tit.opt.config import MExConfig
+
+        with pytest.raises(ValueError, match="currents_mA"):
+            MExConfig(
+                subject_id="001",
+                leadfield_hdf="lf.hdf5",
+                roi_name="target",
+                electrodes=self._bucket_electrodes(),
+                currents_mA=currents,
+            )
+
+    def test_unequal_currents_reject_pool_electrodes(self):
+        # Pool mode keeps one montage per class of slot permutations, which is
+        # only a symmetry while every slot carries the same current.
+        from tit.opt.config import MExConfig
+
+        pool = MExConfig.PoolElectrodes(electrodes=[f"E{i}" for i in range(1, 9)])
+        with pytest.raises(ValueError, match="bucket electrodes"):
+            MExConfig(
+                subject_id="001",
+                leadfield_hdf="lf.hdf5",
+                roi_name="target",
+                electrodes=pool,
+                currents_mA=[2, 2, 1, 3],
+            )
+        # Equal per-pair currents keep the slots interchangeable.
+        MExConfig(
+            subject_id="001",
+            leadfield_hdf="lf.hdf5",
+            roi_name="target",
+            electrodes=pool,
+            currents_mA=[1.5, 1.5, 1.5, 1.5],
+        )
+
     def test_symmetric_bucket_rejects_pool_electrodes(self):
         from tit.opt.config import MExConfig
 
@@ -523,6 +594,78 @@ class TestSaveRunConfigPolymorphism:
         }
         assert data["current_mA"] == 2.0
         assert "total_current_mA" not in data
+        assert "currents_mA" not in data
+
+    def test_mex_config_records_per_pair_currents(self, tmp_path):
+        from tit.opt.config import MExConfig
+        from tit.opt.ex.results import save_run_config
+
+        config = MExConfig(
+            subject_id="001",
+            leadfield_hdf="lf.hdf5",
+            roi_name="roi",
+            electrodes=MExConfig.BucketElectrodes(
+                **{
+                    f"e{p}_{s}": [f"{p}{s}"]
+                    for p in range(1, 5)
+                    for s in ("plus", "minus")
+                }
+            ),
+            currents_mA=[2, 2, 1, 3],
+        )
+        path = save_run_config(config, 1, str(tmp_path), MagicMock())
+        data = json.loads(Path(path).read_text())
+        assert data["currents_mA"] == [2.0, 2.0, 1.0, 3.0]
+        assert "current_mA" not in data
+
+
+@pytest.mark.unit
+class TestPerPairCurrentResults:
+    """Unequal pair currents reach the run name and the results CSV."""
+
+    def test_current_tag_keeps_the_single_value_form_for_equal_currents(self):
+        from tit.opt.mex.engine import current_tag
+
+        assert current_tag((2.0, 2.0, 2.0, 2.0)) == "_I-2.0mA"
+        assert current_tag((2.0, 2.0, 1.0, 3.0)) == "_I-2.0-2.0-1.0-3.0mA"
+
+    @pytest.mark.parametrize("suffix", ["_I-2.0mA", "_I-2.0-2.0-1.0-3.0mA"])
+    def test_montage_string_strips_either_suffix(self, suffix):
+        from tit.opt.ex.results import parse_montage_string
+
+        montage = f"A_B <> C_D <> E_F <> G_H{suffix}"
+        assert parse_montage_string(montage) == list("ABCDEFGH")
+
+    def test_mex_csv_carries_four_current_columns_and_ex_keeps_two(self):
+        from tit.opt.ex.results import build_csv_rows
+
+        metrics = {
+            "R_TImax_ROI": 1.0,
+            "R_TImean_ROI": 0.5,
+            "R_TImean_GM": 0.25,
+            "R_Focality": 2.0,
+        }
+        mex = {
+            "TI_field_A_B_and_C_D_and_E_F_and_G_H_I-2.0-2.0-1.0-3.0mA.msh": {
+                **metrics,
+                **{f"current_ch{ch}_mA": c for ch, c in zip(range(1, 5), (2, 2, 1, 3))},
+            }
+        }
+        rows, *_ = build_csv_rows(mex, "R")
+        header, row = rows
+        assert header[1:5] == [f"Current_Ch{ch}_mA" for ch in range(1, 5)]
+        assert row[1:5] == ["2.0", "2.0", "1.0", "3.0"]
+
+        ex = {
+            "TI_field_A_B_and_C_D_I1-1.0mA_I2-1.0mA.msh": {
+                **metrics,
+                "current_ch1_mA": 1.0,
+                "current_ch2_mA": 1.0,
+            }
+        }
+        header, _ = build_csv_rows(ex, "R")[0]
+        assert header[1:3] == ["Current_Ch1_mA", "Current_Ch2_mA"]
+        assert header[3] == "TImax_ROI"
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +745,7 @@ class TestComputeMtiField:
         engine_mod.get_TI_vectors = MagicMock(return_value=metric_vectors)
 
         electrodes = ("A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2")
-        result = engine.compute_mti_field(electrodes, current_mA=2.0)
+        result = engine.compute_mti_field(electrodes, currents_mA=(2.0,) * 4)
 
         expected_keys = {
             "TestROI_TImax_ROI",
@@ -634,6 +777,38 @@ class TestComputeMtiField:
         call = engine_mod.get_TI_vectors.call_args
         assert len(call.args[0]) == 4  # four channel fields, paired positionally
 
+    def test_each_pair_is_driven_at_its_own_current(self):
+        import tit.opt.mex.engine as engine_mod
+
+        engine = _make_mex_engine()
+        _setup_engine_fields(engine)
+
+        # A linear stand-in for the leadfield: the field is the current times a
+        # per-pair unit field, so each pair's scaling is visible downstream.
+        units = {
+            name: np.full((5, 3), float(k + 1))
+            for k, name in enumerate(("A1", "B1", "C1", "D1"))
+        }
+        engine_mod.TI.get_field = MagicMock(
+            side_effect=lambda spec, *_: spec[2] * units[spec[0]]
+        )
+        engine_mod.get_TI_vectors = MagicMock(return_value=np.zeros((5, 3)))
+
+        electrodes = ("A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2")
+        result = engine.compute_mti_field(electrodes, currents_mA=(2.0, 2.0, 1.0, 3.0))
+
+        fields = engine_mod.get_TI_vectors.call_args.args[0]
+        for pair, (name, current) in enumerate(
+            zip(("A1", "B1", "C1", "D1"), (2.0, 2.0, 1.0, 3.0))
+        ):
+            np.testing.assert_allclose(fields[pair], current / 1000.0 * units[name])
+        assert [result[f"current_ch{ch}_mA"] for ch in range(1, 5)] == [
+            2.0,
+            2.0,
+            1.0,
+            3.0,
+        ]
+
     def test_zero_roi_elements_returns_zeros(self):
         import tit.opt.mex.engine as engine_mod
 
@@ -648,7 +823,7 @@ class TestComputeMtiField:
         engine_mod.get_TI_vectors = MagicMock(return_value=np.zeros((5, 3)))
 
         electrodes = ("A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2")
-        result = engine.compute_mti_field(electrodes, current_mA=1.0)
+        result = engine.compute_mti_field(electrodes, currents_mA=(1.0,) * 4)
 
         assert result["TestROI_TImax_ROI"] == 0.0
         assert result["TestROI_TImean_ROI"] == 0.0

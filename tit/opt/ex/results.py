@@ -85,7 +85,10 @@ def save_run_config(config, n_combinations: int, output_dir: str, logger: Any) -
         run_info["total_current_mA"] = config.total_current
         run_info["current_step_mA"] = config.current_step
         run_info["channel_limit_mA"] = config.channel_limit
-    if hasattr(config, "current_mA"):
+    if getattr(config, "currents_mA", None) is not None:
+        # Per-pair currents replace current_mA, so only they are recorded.
+        run_info["currents_mA"] = list(config.currents_mA)
+    elif hasattr(config, "current_mA"):
         run_info["current_mA"] = config.current_mA
     if hasattr(config, "symmetric_bucket"):
         run_info["symmetric_bucket"] = config.symmetric_bucket
@@ -127,10 +130,12 @@ def build_csv_rows(
     comp_vals : list of float
         Composite index (``timean * focality``) for each montage.
     """
+    # mEx records four channel currents; Ex records two, and its CSV keeps
+    # the two-column layout it has always had.
+    n_channels = 4 if any("current_ch3_mA" in data for data in results.values()) else 2
     header = [
         "Montage",
-        "Current_Ch1_mA",
-        "Current_Ch2_mA",
+        *(f"Current_Ch{ch}_mA" for ch in range(1, n_channels + 1)),
         "TImax_ROI",
         "TImean_ROI",
         "TImean_GM",
@@ -151,8 +156,10 @@ def build_csv_rows(
         rows.append(
             [
                 name,
-                f"{data.get('current_ch1_mA', 0):.1f}",
-                f"{data.get('current_ch2_mA', 0):.1f}",
+                *(
+                    f"{data.get(f'current_ch{ch}_mA', 0):.1f}"
+                    for ch in range(1, n_channels + 1)
+                ),
                 f"{ti_max:.4f}",
                 f"{ti_mean:.4f}",
                 f"{ti_mean_gm:.4f}",
@@ -273,14 +280,14 @@ def generate_plots(
     return saved
 
 
-_MONTAGE_SUFFIX = re.compile(r"_I1?-[\d.]+mA(?:_I2-[\d.]+mA)?$")
+_MONTAGE_SUFFIX = re.compile(r"_I1?-[\d.]+(?:-[\d.]+)*mA(?:_I2-[\d.]+mA)?$")
 
 
 def parse_montage_string(montage: str) -> list[str]:
     """Electrode labels of a ``final_output.csv`` montage string.
 
     Handles ``A_B <> C_D`` (ex-search) and ``A_B <> C_D <> E_F <> G_H``
-    (m-ex-search), stripping the ``_I1-..mA_I2-..mA`` / ``_I-..mA`` suffix.
+    (m-ex-search), stripping the ``_I1-..mA_I2-..mA`` / ``_I-..mA`` / ``_I-a-b-c-dmA`` suffix.
     """
     montage = _MONTAGE_SUFFIX.sub("", montage.strip())
     electrodes = []

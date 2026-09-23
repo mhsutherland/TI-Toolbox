@@ -13,6 +13,7 @@ import {
   savedTargets,
 } from "../../src/renderer/pages/optimizer/exConfig";
 import type { ExConfigBody, LeadfieldConfigBody, MExConfigBody } from "../../src/renderer/pages/optimizer/api";
+import { emptyOptimizerRow, optimizerMethodSummary } from "../../src/renderer/pages/optimizer/rows";
 
 // contracts/generated/config.schema.json is repo-root; desktop/tests/unit -> ../../.. reaches the repo root.
 const schemaPath = join(__dirname, "..", "..", "..", "contracts", "generated", "config.schema.json");
@@ -164,6 +165,53 @@ describe("Optimizer Ex/mEx defaults validate against contracts/generated/config.
     it("rejects a non-positive frequency as unset rather than sending it", () => {
       const config = build({ frequencies: [2000, 2010, 0, 4010] });
       expect(config.frequencies_hz).toBeNull();
+    });
+  });
+
+  describe("mEx per-pair current", () => {
+    const BUCKETS = {
+      e1_plus: ["E24"], e1_minus: ["E124"], e2_plus: ["E67"], e2_minus: ["E77"],
+      e3_plus: ["E1"], e3_minus: ["E2"], e4_plus: ["E3"], e4_minus: ["E4"],
+    };
+    const form = (over: Partial<ReturnType<typeof defaultMExFormState>>) => ({
+      ...defaultMExFormState(),
+      buckets: BUCKETS,
+      ...over,
+    });
+    const build = (over: Partial<ReturnType<typeof defaultMExFormState>>) =>
+      buildMExConfig(
+        "ernie",
+        "/mnt/example/leadfields/GSN-HydroCel-185/leadfield.hdf5",
+        form(over),
+        savedTargets(["Thalamus_target"], false)[0]!,
+        "",
+      );
+
+    it("defaults every pair to 2 mA and sends it as the single current_mA", () => {
+      expect(defaultMExFormState().currents).toEqual([2, 2, 2, 2]);
+      const config = build({});
+      expect(config.current_mA).toBe(2);
+      expect(config.currents_mA).toBeNull();
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("sends equal per-pair currents as current_mA, keeping historical run names", () => {
+      const config = build({ currents: [1.5, 1.5, 1.5, 1.5] });
+      expect(config.current_mA).toBe(1.5);
+      expect(config.currents_mA).toBeNull();
+    });
+
+    it("sends unequal per-pair currents as currents_mA", () => {
+      const config = build({ currents: [2, 2, 1, 3] });
+      expect(config.currents_mA).toEqual([2, 2, 1, 3]);
+      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
+    });
+
+    it("summarises unequal currents per pair in the job row", () => {
+      const row = emptyOptimizerRow({ method: "ex", exPairs: 4, mex: form({ currents: [2, 2, 1, 3] }) });
+      expect(optimizerMethodSummary(row)).toContain("2 / 2 / 1 / 3 mA");
+      const equal = emptyOptimizerRow({ method: "ex", exPairs: 4, mex: form({}) });
+      expect(optimizerMethodSummary(equal)).toContain(" 2 mA ");
     });
   });
 

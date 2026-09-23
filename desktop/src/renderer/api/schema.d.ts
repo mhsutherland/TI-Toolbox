@@ -7382,6 +7382,12 @@ export interface components {
          *         ``__post_init__``.
          *     current_mA : float
          *         Current in mA delivered by each of the four pairs.  Default ``2.0``.
+         *         Superseded by *currents_mA* when that is set.
+         *     currents_mA : list of float or None
+         *         Fixed current in mA for each of the four pairs, in pair order.
+         *         ``None`` (default) drives every pair at *current_mA*.  The search
+         *         honours these values but never varies them -- unlike Ex's split
+         *         search.  Unequal values require bucket electrodes (see Raises).
          *     roi_radius : float
          *         Spherical ROI radius in mm for the target region.  Default ``3.0``.
          *     roi_names : list of str or None
@@ -7421,8 +7427,9 @@ export interface components {
          *     Raises
          *     ------
          *     ValueError
-         *         If *current_mA* is non-positive, if *symmetric_bucket* is set
-         *         with pool electrodes, if *symmetry_pairing* is not one of
+         *         If *current_mA* is non-positive, if *currents_mA* is not four finite
+         *         positive values or is unequal with pool electrodes, if
+         *         *symmetric_bucket* is set with pool electrodes, if *symmetry_pairing* is not one of
          *         ``"within_pairs"``/``"cross_pairs"``, or if *roi_coordinate_space*
          *         is not ``"subject"`` or ``"mni"``.
          *
@@ -7518,6 +7525,11 @@ export interface components {
              * @default null
              */
             phases_deg: number[] | null;
+            /**
+             * Currents Ma
+             * @default null
+             */
+            currents_mA: number[] | null;
         };
         /**
          * AnalyzerConfig

@@ -87,6 +87,18 @@ def _number(value):
         return None
 
 
+def _saved_pair_current(config: dict, pair: int):
+    """Pair *pair*'s current from a saved run config, for rows without a column.
+
+    mEx runs with per-pair currents record ``currents_mA``; every other run
+    drives all pairs at ``current_mA``.
+    """
+    currents = config.get("currents_mA")
+    if isinstance(currents, list) and pair < len(currents):
+        return currents[pair]
+    return config.get("current_mA")
+
+
 def run_directory(pm, subject: str, kind: str, run: str) -> Path:
     from tit.catalog import subject_ids
 
@@ -218,7 +230,10 @@ def _ex_rows(root: Path, directory: Path, kind: str) -> list[dict]:
                     "eeg_net": _net_from_leadfield_hdf(leadfield),
                     "currents_mA": [
                         _number(
-                            row.get(f"Current_Ch{i+1}_mA", config.get("current_mA"))
+                            row.get(
+                                f"Current_Ch{i+1}_mA",
+                                _saved_pair_current(config, i),
+                            )
                         )
                         for i in range(len(labels) // 2)
                     ],

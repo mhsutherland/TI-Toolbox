@@ -216,6 +216,43 @@ def test_actual_ex_csv_writer_roundtrips_currents_and_labels(history, kind, expe
     assert "Simulator defaults" in detail["candidate"]["replay_note"]
 
 
+def test_mex_per_pair_currents_replay_into_the_simulator(history):
+    from tit.opt.ex.results import build_csv_rows
+
+    pm, directory = _write_ex_fixture(history, "mex")
+    data = {
+        "target_TImax_ROI": 1.2,
+        "target_TImean_ROI": 0.4,
+        "target_TImean_GM": 0.2,
+        "target_Focality": 2,
+        **{f"current_ch{ch}_mA": c for ch, c in zip(range(1, 5), (2, 2, 1, 3))},
+    }
+    name = "E1_E2_and_E3_E4_and_E5_E6_and_E7_E8_I-2.0-2.0-1.0-3.0mA"
+    rows, *_ = build_csv_rows({f"TI_field_{name}.msh": data}, "target")
+    with (directory / "final_output.csv").open("w", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    detail = catalog.candidate_detail(pm, "ernie", "mex", "run", "ex-0")
+    assert detail["simulation_config"]["intensities"] == [2, 2, 1, 3]
+
+
+def test_mex_row_without_pair_columns_falls_back_to_saved_per_pair_currents(history):
+    pm, directory = _write_ex_fixture(history, "mex")
+    # A CSV with only the two historical current columns: pairs 3 and 4 come
+    # from the run config, per pair rather than from the shared current_mA.
+    with (directory / "final_output.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    fields = [f for f in rows[0] if f not in ("Current_Ch3_mA", "Current_Ch4_mA")]
+    with (directory / "final_output.csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    config = json.loads((directory / "run_config.json").read_text())
+    config["currents_mA"] = [2, 2, 1, 3]
+    (directory / "run_config.json").write_text(json.dumps(config))
+    detail = catalog.candidate_detail(pm, "ernie", "mex", "run", "ex-0")
+    assert detail["simulation_config"]["intensities"] == [2, 2, 1, 3]
+
+
 def test_new_zero_candidate_history_is_not_legacy(history):
     pm, directory = history
     (directory / "candidates.csv").write_text("candidate_id,objective\n")

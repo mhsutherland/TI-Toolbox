@@ -211,13 +211,13 @@ Choose the **Ex** method for a job row, open its settings and select **8 electro
 under **Electrodes → Count**. The default **4 electrodes (TI)** uses two channels. Selecting mTI:
 
 - Uses eight electrode-bucket selectors, **E1+ .. E4-**, populated from the selected EEG net. mTI is bucket-only; all-combinations mode is available for TI only.
-- Switches the current-configuration panel to a **Pair Current (mA)** spinbox — the per-channel current (range 0.1-10.0, default 2.0, step 0.1) — and a **Force left/right symmetry** checkbox (unchecked by default) that enables a symmetry-pairing combo — "Within each pair" / "Cross pairs (E1<->E3, E2<->E4)" — once checked.
+- Replaces the current-split controls with a **current per pair** in the Carriers section (range 0.1-10.0 mA, default 2.0, step 0.1; see [Per-pair current](#per-pair-current-mti-only)), and adds a **Force left/right symmetry** checkbox (unchecked by default) that enables a symmetry-pairing combo — "Within each pair" / "Cross pairs (E1<->E3, E2<->E4)" — once checked.
 - Disables the **Combine ROIs** checkbox only. Saved spherical, atlas-region and imported-mask targets remain available: `MExConfig` carries `roi_names` and `roi_atlas` exactly as `ExConfig` does, so an mTI run can target a sphere, an atlas region, or an atlas region alone. Combining stays TI-only because the multipolar run path processes selected spheres one at a time.
 - Submits a `mex` job through the shared run controls. Follow its Terminal log or stop it from Jobs.
 
 ### Carrier frequency and phase (mTI only)
 
-The **Carriers** section takes a **frequency** (Hz) and a **phase** (°) for each of the four bipolar pairs, beside the pair current. Leave them blank — the default — and the search keeps the positional wiring it has always used: each pair on its own carrier, pairs 1&2 beating and pairs 3&4 beating. Every mTI run made before these fields existed means exactly that, so an untouched form ranks candidates as it always did.
+The **Carriers** section takes a **frequency** (Hz) and a **phase** (°) for each of the four bipolar pairs, beside that pair's current. Leave them blank — the default — and the search keeps the positional wiring it has always used: each pair on its own carrier, pairs 1&2 beating and pairs 3&4 beating. Every mTI run made before these fields existed means exactly that, so an untouched form ranks candidates as it always did.
 
 Filling them in lets you search a wiring the positional model cannot express. The useful case is **two pairs sharing each carrier** — `2000, 2000, 2010, 2010` — where the two fields on one frequency add as vectors before anything beats, so the electrode order *within* those pairs starts to matter. A 180° phase is exactly a polarity reversal, so you can write that either way round. The section states the derived wiring in words, e.g. `4 channels · 2 frequencies · 1 carrier pair · Δf = 10 Hz · coherent sum (electrode order matters)`.
 
@@ -227,6 +227,14 @@ Unlike the Simulator, the optimizer treats frequency as a **fixed input**: it ho
 - **More than one difference frequency**, or phases within a carrier that are neither equal nor 180° apart (an elliptically polarised carrier). Both are outside what the modulation-depth formula represents.
 
 **Pool mode** additionally refuses any non-positional wiring. Its enumeration keeps one montage per symmetry *class*, and those classes are derived from the positional, phase-aligned layout; under a different wiring, montages that are genuinely distinct would look equivalent and be skipped. Bucket mode has no such restriction — including with **Force left/right symmetry**, which only restricts *which* electrode combinations are generated and still scores each survivor with the real physics.
+
+### Per-pair current (mTI only)
+
+Each of the four **Pair N carrier** rows takes its own **current** (mA), beside the frequency and phase; this is the only current control an mTI search has. Every pair starts at 2.0 mA, so an untouched form runs every pair at the same current, exactly as every earlier mTI run did. Clearing a pair's current resets it to 2.0 mA.
+
+The current is a **fixed input**, like frequency: the search ranks electrode choices at the currents you set and never varies them. Unlike two-channel ex-search, mex-search has no current-split sweep — with four pairs the number of splits multiplies an already large electrode search. Scaling all four currents by the same factor scales every candidate's field by that factor and does not reorder the ranking; *unequal* currents change the envelope (it is limited by the weaker field of each beating pair) and can.
+
+**Pool mode** refuses unequal currents for the same reason it refuses a non-positional wiring: its symmetry classes treat the four pair slots as interchangeable, which pairs carrying different currents are not. The Optimizer always searches mTI in bucket mode, so this only affects `MExConfig` used from Python.
 
 ### Why two-channel Ex-search has no such setting
 
@@ -246,16 +254,14 @@ Scripts can still set `frequencies_hz` / `phases_deg` on `ExConfig`, and the phy
 
 ### Scoring
 
-For each candidate, the engine computes four leadfield fields via `TI.get_field([e_a, e_b, current_mA/1000.0], leadfield, idx_lf)` (mA converted to A), takes `vectors = get_TI_vectors(fields)`, and scores `np.linalg.norm(vectors, axis=1)`. Per-candidate metrics are the same as two-channel ex-search ([Metrics](#metrics) above), keyed with the ROI-name prefix (`{roi}_TImax_ROI`, `{roi}_TImean_ROI`, `{roi}_TImean_GM`, `{roi}_Focality` — `0.0` if the GM mean is $$\le 0$$ — and `{roi}_n_elements`), plus `current_ch1_mA` .. `current_ch4_mA` (all four set to the same `current_mA`). If the ROI has zero elements, all four metrics are `0.0`. ROI resolution (spherical CSV centers, NIfTI/MGZ masks, atlas label selections) is inherited wholesale from the ex-search engine.
+For each candidate, the engine computes four leadfield fields via `TI.get_field([e_a, e_b, I_pair/1000.0], leadfield, idx_lf)` (each pair at its own current, mA converted to A), takes `vectors = get_TI_vectors(fields)`, and scores `np.linalg.norm(vectors, axis=1)`. Per-candidate metrics are the same as two-channel ex-search ([Metrics](#metrics) above), keyed with the ROI-name prefix (`{roi}_TImax_ROI`, `{roi}_TImean_ROI`, `{roi}_TImean_GM`, `{roi}_Focality` — `0.0` if the GM mean is $$\le 0$$ — and `{roi}_n_elements`), plus `current_ch1_mA` .. `current_ch4_mA` (each pair's own current: `currents_mA`, or `current_mA` for all four). If the ROI has zero elements, all four metrics are `0.0`. ROI resolution (spherical CSV centers, NIfTI/MGZ masks, atlas label selections) is inherited wholesale from the ex-search engine.
 
 ### Outputs
 
 mex-search reuses ex-search's output pipeline, writing the same file set to `derivatives/SimNIBS/sub-{id}/m-ex-search/{run_name}/`:
 
-- `run_config.json` — subject_id, roi_name, roi_radius, leadfield_hdf, electrode_mode (`"pool"` or `"bucket"`), electrodes, n_combinations, run_name, current_mA.
-- `final_output.csv` — one row per evaluated candidate, in **enumeration order** (not sorted). Fixed 8-column header: `Montage, Current_Ch1_mA, Current_Ch2_mA, TImax_ROI, TImean_ROI, TImean_GM, Focality, Composite_Index`. Currents are formatted to 1 decimal, metrics to 4. The Montage cell strips the `TI_field_`/`.msh` wrapper from the candidate key and replaces `_and_` with `<>`.
-
-  Note: the engine computes `current_ch3_mA`/`current_ch4_mA` too, but the CSV header has no columns for them — only Ch1/Ch2 currents are recorded (both ex-search and mex-search share this fixed-width CSV writer).
+- `run_config.json` — subject_id, roi_name, roi_radius, leadfield_hdf, electrode_mode (`"pool"` or `"bucket"`), electrodes, n_combinations, run_name, and either `current_mA` (every pair at one current) or `currents_mA` (per-pair currents, which replace it).
+- `final_output.csv` — one row per evaluated candidate, in **enumeration order** (not sorted). 10-column header: `Montage, Current_Ch1_mA, Current_Ch2_mA, Current_Ch3_mA, Current_Ch4_mA, TImax_ROI, TImean_ROI, TImean_GM, Focality, Composite_Index` (two-channel ex-search keeps its 8-column layout). Currents are formatted to 1 decimal, metrics to 4. The Montage cell strips the `TI_field_`/`.msh` wrapper from the candidate key and replaces `_and_` with `<>`.
 
 - The same five figures as two-channel ex-search (`montage_distributions.png`, `intensity_vs_focality_scatter.png`, and the three EEG-map figures at dpi=300), with four arcs per candidate on the montage maps; regenerate for an existing run with `simnibs_python -m tit.opt.ex.results <run_dir>`.
 
@@ -270,7 +276,7 @@ mex-search reuses ex-search's output pipeline, writing the same file set to `der
   </div>
 </div>
 
-The candidate key/name format is `TI_field_{e1a}_{e1b}_and_{e2a}_{e2b}_and_{e3a}_{e3b}_and_{e4a}_{e4b}_I-{current_mA:.1f}mA.msh` — no mesh file is actually written; it is only a label. Progress is logged per candidate plus a coarse estimate every 500 candidates, since bucketed four-channel searches can reach hundreds of thousands of combinations. SIGINT/SIGTERM interruption and the zero-candidate fail-fast behave exactly as in two-channel ex-search.
+The candidate key/name format is `TI_field_{e1a}_{e1b}_and_{e2a}_{e2b}_and_{e3a}_{e3b}_and_{e4a}_{e4b}_I-{current_mA:.1f}mA.msh` when all pairs share one current, or `…_I-{I1}-{I2}-{I3}-{I4}mA.msh` with per-pair currents — no mesh file is actually written; it is only a label. Progress is logged per candidate plus a coarse estimate every 500 candidates, since bucketed four-channel searches can reach hundreds of thousands of combinations. SIGINT/SIGTERM interruption and the zero-candidate fail-fast behave exactly as in two-channel ex-search.
 
 ### Example run (sub-ernie, v2.4.0)
 
@@ -299,7 +305,7 @@ _`intensity_vs_focality_scatter.png`: the 576 candidates trace the intensity–f
 
 _Bilateral montages reach ~⅔ of the ROI intensity of the unconstrained search for this left-lateral target (0.21 vs 0.31 V/m at similar focality) — the expected price of symmetry; `symmetry_pairing: "cross_pairs"` additionally mirrors channels 1↔3 and 2↔4._
 
-**Cost.** Scoring one four-channel candidate with the verified multi-carrier envelope is a per-element direction search (192-direction sweep plus local refinement), not a closed form like two-channel ex-search. The search is evaluated on ROI ∪ GM only by a fused numba kernel (`tit/_mti_kernel.py`, all cores) and candidates are distributed over forked worker processes (`n_jobs`, default all cores − 1): on a 12-core machine this is ~1–2 s per candidate, i.e. a few hundred candidates in ~10 min. The first call pays ~10 s of JIT compilation, cached afterwards. There is no current-ratio sweep in mex-search; each run uses a single `current_mA`.
+**Cost.** Scoring one four-channel candidate with the verified multi-carrier envelope is a per-element direction search (192-direction sweep plus local refinement), not a closed form like two-channel ex-search. The search is evaluated on ROI ∪ GM only by a fused numba kernel (`tit/_mti_kernel.py`, all cores) and candidates are distributed over forked worker processes (`n_jobs`, default all cores − 1): on a 12-core machine this is ~1–2 s per candidate, i.e. a few hundred candidates in ~10 min. The first call pays ~10 s of JIT compilation, cached afterwards. There is no current-ratio sweep in mex-search; each run uses fixed pair currents (`current_mA`, or per pair via `currents_mA`).
 
 ### Running it
 
@@ -307,7 +313,7 @@ _Bilateral montages reach ~⅔ of the ROI intensity of the unconstrained search 
 simnibs_python -m tit.opt.mex config.json
 ```
 
-JSON config keys: `project_dir`, `subject_id`, `leadfield_hdf`, `roi_name`, `electrodes` (`_type`: `"BucketElectrodes"` or `"PoolElectrodes"`, plus `e1_plus`..`e4_minus` or `electrodes`), `current_mA`, `roi_radius`, `roi_names`, `roi_atlas`, `roi_coordinate_space`, `run_name`, `n_jobs` (worker processes, default −1 = all cores − 1), `symmetric_bucket`, `symmetry_eeg_csv`, `symmetry_pairing`.
+JSON config keys: `project_dir`, `subject_id`, `leadfield_hdf`, `roi_name`, `electrodes` (`_type`: `"BucketElectrodes"` or `"PoolElectrodes"`, plus `e1_plus`..`e4_minus` or `electrodes`), `current_mA`, `currents_mA` (optional, four per-pair currents that replace `current_mA`), `roi_radius`, `roi_names`, `roi_atlas`, `roi_coordinate_space`, `run_name`, `n_jobs` (worker processes, default −1 = all cores − 1), `symmetric_bucket`, `symmetry_eeg_csv`, `symmetry_pairing`.
 
 ```json
 {

@@ -201,6 +201,13 @@ describe("ex run — sub-ernie/ex-search/docs_ex_symmetric", () => {
   it("returns undefined for a run_config that is not JSON", () => {
     expect(parseExRunConfig("")).toBeUndefined();
   });
+
+  it("states an mEx run's pair currents, shared or per pair", () => {
+    const current = (config: object) =>
+      parseExRunConfig(JSON.stringify(config))!.rows.find((r) => r.label === "Current")?.value;
+    expect(current({ current_mA: 2 })).toBe("2 mA per pair");
+    expect(current({ currents_mA: [2, 2, 1, 3] })).toBe("2 / 2 / 1 / 3 mA per pair");
+  });
 });
 
 describe("rankExRows — the top of final_output.csv", () => {

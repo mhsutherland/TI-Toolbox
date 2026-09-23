@@ -30,7 +30,7 @@ def run_m_ex_search(config: MExConfig) -> MExResult:
     """Run an exhaustive four-pair (eight-electrode) mTI search over a leadfield.
 
     Enumerates every four-pair combination allowed by
-    ``config.electrodes`` at one fixed ``current_mA`` per pair, scores each
+    ``config.electrodes`` at fixed per-pair currents, scores each
     candidate with the N>2 mTI envelope
     (:func:`tit.calc.get_TI_vectors`), and writes a ranked CSV plus a
     config JSON under the subject's ``m-ex-search/`` folder.
@@ -183,7 +183,7 @@ def _run_m_ex_search_inner(config: MExConfig) -> MExResult:
         buckets_or_pool,
         all_combinations,
         output_dir,
-        current_mA=config.current_mA,
+        currents_mA=config.pair_currents_mA,
         symmetry_mirror_map=symmetry_mirror_map,
         symmetry_pairing=config.symmetry_pairing,
         n_jobs=config.n_jobs,

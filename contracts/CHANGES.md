@@ -1085,3 +1085,17 @@ not the JSON Schema's `required` list — `buildExConfig` / `buildMExConfig` the
 What the fields mean, and which assignments are rejected rather than approximated, is
 `tit/wiring.py`; the user-facing description is
 [Channels and Carriers](../docs/wiki/simulator.md#channels-and-carriers).
+
+## 2026-09-22 — Per-pair currents on `MExConfig`
+
+Generated-schema change only: `contracts/openapi.yaml` is untouched, and the property sits under the
+`MExConfig` `x-tit-config` placeholder, so `config.schema.json` / `openapi.json` / `schema.d.ts` were
+regenerated from the dataclass (`dev/build_contracts.py`, `npm run gen:api`).
+
+**Added** — **`currents_mA`** (`list[float] | null`, default `null`) on `MExConfig`
+(`tit/opt/config.py`): one fixed current in mA per bipolar pair, in pair order. `null` drives every
+pair at `current_mA`, so an existing payload validates unchanged and runs exactly as before. The
+dataclass rejects anything other than four finite positive values, and rejects unequal values with
+`PoolElectrodes`, whose symmetry classes treat the pair slots as interchangeable. The desktop
+`buildMExConfig` sends equal per-pair currents as `current_mA` with `currents_mA: null`, and
+unequal ones as `currents_mA`.

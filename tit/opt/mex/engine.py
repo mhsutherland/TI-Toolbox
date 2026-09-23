@@ -16,6 +16,17 @@ from tit.opt.ex.parallel import evaluate_ordered, resolve_n_jobs
 from .logic import count_multipolar_combinations, generate_multipolar_combinations
 
 
+def current_tag(currents_mA) -> str:
+    """The run-name current suffix: ``_I-2.0mA``, or ``_I-2.0-2.0-1.0-3.0mA``.
+
+    Equal currents keep the historical single-value form, so existing result
+    names do not change.
+    """
+    if len(set(currents_mA)) == 1:
+        return f"_I-{currents_mA[0]:.1f}mA"
+    return "_I-" + "-".join(f"{c:.1f}" for c in currents_mA) + "mA"
+
+
 class MExSearchEngine(ExSearchEngine):
     """Exhaustive search engine for four-pair (eight-electrode) mTI montages.
 
@@ -38,9 +49,11 @@ class MExSearchEngine(ExSearchEngine):
     def compute_mti_field(
         self,
         electrodes: tuple[str, str, str, str, str, str, str, str],
-        current_mA: float,
+        currents_mA: tuple[float, float, float, float],
     ) -> dict[str, float]:
         """Compute one four-pair mTI candidate and return ROI metrics.
+
+        Each pair is driven at its own entry of *currents_mA*, in pair order.
 
         The K>=2 envelope (:func:`tit.calc.get_TI_vectors`) is a per-element
         direction search -- far costlier than the 2-pair closed form -- so it
@@ -49,11 +62,15 @@ class MExSearchEngine(ExSearchEngine):
         subset, roi_pos, gm_pos = self._evaluation_subset()
         fields = [
             TI.get_field(
-                [electrodes[idx], electrodes[idx + 1], current_mA / 1000.0],
+                [
+                    electrodes[2 * pair],
+                    electrodes[2 * pair + 1],
+                    currents_mA[pair] / 1000.0,
+                ],
                 self.leadfield,
                 self.idx_lf,
             )[subset]
-            for idx in range(0, 8, 2)
+            for pair in range(4)
         ]
 
         if self.wiring is None:
@@ -65,7 +82,7 @@ class MExSearchEngine(ExSearchEngine):
 
         data = self._roi_metrics(metric[roi_pos], metric[gm_pos])
         for ch in range(1, 5):
-            data[f"current_ch{ch}_mA"] = current_mA
+            data[f"current_ch{ch}_mA"] = currents_mA[ch - 1]
         return data
 
     def run(
@@ -73,7 +90,7 @@ class MExSearchEngine(ExSearchEngine):
         buckets_or_pool,
         all_combinations: bool,
         output_dir: str,
-        current_mA: float,
+        currents_mA: tuple[float, float, float, float],
         symmetry_mirror_map: dict[str, str] | None = None,
         symmetry_pairing: str = "within_pairs",
         n_jobs: int = 1,
@@ -103,7 +120,9 @@ class MExSearchEngine(ExSearchEngine):
         if symmetry_mirror_map is not None:
             mode += f", left/right symmetric ({symmetry_pairing})"
         self.logger.info("Multipolar Exhaustive Search (%s)", mode)
-        self.logger.info("Current per pair: %.3f mA", current_mA)
+        self.logger.info(
+            "Current per pair: %s mA", " / ".join(f"{c:.3f}" for c in currents_mA)
+        )
         self.logger.info("Total combinations: %d", total)
         n_jobs = resolve_n_jobs(n_jobs)
         self.logger.info("Workers: %d", n_jobs)
@@ -111,6 +130,7 @@ class MExSearchEngine(ExSearchEngine):
 
         results: dict[str, dict[str, float]] = {}
         start_time = time.time()
+        suffix = current_tag(currents_mA)
 
         candidates = generate_multipolar_combinations(
             buckets_or_pool,
@@ -125,7 +145,7 @@ class MExSearchEngine(ExSearchEngine):
         def _feed():
             for electrodes in candidates:
                 pending.append(electrodes)
-                yield (electrodes, current_mA)
+                yield (electrodes, currents_mA)
 
         evaluations = evaluate_ordered(
             self, "compute_mti_field", _feed(), n_jobs, n_tasks=total
@@ -140,7 +160,7 @@ class MExSearchEngine(ExSearchEngine):
             pair_names = [
                 f"{electrodes[idx]}_{electrodes[idx + 1]}" for idx in range(0, 8, 2)
             ]
-            name = "_and_".join(pair_names) + f"_I-{current_mA:.1f}mA"
+            name = "_and_".join(pair_names) + suffix
             key = f"TI_field_{name}.msh"
 
             elapsed = time.time() - start_time

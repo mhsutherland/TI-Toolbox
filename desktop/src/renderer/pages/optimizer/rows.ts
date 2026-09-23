@@ -25,7 +25,7 @@
 import { emptyRoi, isRoiComplete, type RoiRegion, type RoiValue } from "../_shared/roi";
 import type { PlanKind } from "../_shared/run";
 import { defaultFlexFormState, jobKindFor, type FlexFormState, type OptGoal } from "./flexConfig";
-import { defaultExFormState, defaultMExFormState, type ExFormState, type MExFormState } from "./exConfig";
+import { defaultExFormState, defaultMExFormState, mexPairCurrents, type ExFormState, type MExFormState } from "./exConfig";
 import { exCost, mexCost } from "./cost";
 
 /**
@@ -267,7 +267,9 @@ export function optimizerMethodSummary(row: OptimizerRow): string {
     const cost = exCost(row.ex);
     return `${rowVariantLabel(row)} · ${row.ex.totalCurrent} mA · ${count(cost.montages)} montage${cost.montages === 1 ? "" : "s"} · ${cost.splits} current split${cost.splits === 1 ? "" : "s"} · ${count(cost.combinations)} iteration${cost.combinations === 1 ? "" : "s"}`;
   }
-  return `${rowVariantLabel(row)} · ${row.mex.currentMa} mA · ${count(mexCost(row.mex).combinations)} combinations`;
+  const currents = mexPairCurrents(row.mex);
+  const current = currents.every((c) => c === currents[0]) ? `${currents[0]}` : currents.join(" / ");
+  return `${rowVariantLabel(row)} · ${current} mA · ${count(mexCost(row.mex).combinations)} combinations`;
 }
 
 /**
