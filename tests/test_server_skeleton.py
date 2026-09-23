@@ -668,6 +668,23 @@ def test_static_bundle_spa_fallback_and_jail(project: Path) -> None:
     assert client.get("/api/nope").status_code == 404
 
 
+def test_static_index_is_revalidated_but_assets_are_not(project: Path) -> None:
+    # A heuristically cached index.html kept an earlier launch's bundle name alive, so the
+    # desktop window showed the old UI after a rebuild or a --dev launch on the same origin.
+    bundle = project / "bundle"
+    (bundle / "assets").mkdir(parents=True)
+    (bundle / "index.html").write_text("<html><body>SPA</body></html>")
+    (bundle / "assets" / "app.js").write_text("console.log(1)")
+    settings = ServerSettings(
+        project_dir=str(project), token=TOKEN, static_dir=str(bundle)
+    )
+    client = TestClient(create_app(settings), base_url=BASE)
+    for path in ("/", "/index.html", "/jobs/42"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+        assert client.head(path).headers["cache-control"] == "no-cache", path
+    assert "cache-control" not in client.get("/assets/app.js").headers
+
+
 @pytest.mark.parametrize("request_path", ["/", "/index.html", "/jobs/42"])
 @pytest.mark.parametrize("outside", [False, True])
 def test_static_index_symlink_stays_in_bundle(

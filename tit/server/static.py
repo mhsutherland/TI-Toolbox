@@ -65,10 +65,15 @@ def serve(path: str, request: Request) -> Response:
         raise HTTPException(status_code=404, detail="Not found")
     static_dir = request.app.state.settings.static_dir
     if static_dir and os.path.isdir(static_dir):
-        target = resolve_static_file(static_dir, path)
-        if target is None:
-            target = resolve_static_file(static_dir, "index.html")
+        index = resolve_static_file(static_dir, "index.html")
+        target = resolve_static_file(static_dir, path) or index
         if target is None:
             raise HTTPException(status_code=404, detail="Not found")
+        # index.html names the hashed bundle, so it must be revalidated every load: without a
+        # cache-control header Chromium reuses it heuristically and a rebuilt bundle (or a --dev
+        # checkout replacing the image's UI on the same origin) never reaches the window. The
+        # hashed assets themselves keep the default caching.
+        if target == index:
+            return FileResponse(target, headers={"cache-control": "no-cache"})
         return FileResponse(target)
     return status_page(static_dir)

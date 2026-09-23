@@ -42,6 +42,13 @@ If an existing container was started with the old configuration, finish its jobs
 it and starting the corrected loader. Rebuild local frontend changes with
 `npm --prefix desktop run build`.
 
+If the container is serving the checkout (its `/ti-toolbox` mount is the worktree and
+`curl -s http://127.0.0.1:8765/` names the freshly built `assets/index-*.js`) but the window still
+shows the old UI, the desktop app's HTTP cache kept an earlier launch's `index.html`. Quit the
+app, run `rm -rf ~/Library/Application\ Support/ti-toolbox-desktop/{Cache,"Code Cache"}`, and
+launch again; settings and sessions are kept. The server now marks `index.html` `no-cache`, so
+this only affects caches written before that change.
+
 
 ## Desktop application
 
