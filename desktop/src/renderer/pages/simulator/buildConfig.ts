@@ -75,12 +75,7 @@ export function buildSimulationConfig(row: SelectedRow, defaults: GlobalParams):
   // on the positional reading, so a row that never touched these runs exactly as it always did —
   // sending nulls would mean the same thing, but omission keeps old and new payloads identical.
   const frequencies = parseDriveList(row.frequencies);
-  if (frequencies) {
-    config.frequencies_hz = frequencies;
-    // Phases default to zero rather than being omitted: the server rejects phases without
-    // frequencies, and an explicit all-zero drive is what "no phase offsets" means.
-    config.phases_deg = parseDriveList(row.phases) ?? frequencies.map(() => 0);
-  }
+  if (frequencies) config.frequencies_hz = frequencies;
   if (row.candidate) delete config.tissue_conductivities;
   if (Object.keys(params.customConductivities).length > 0) {
     config.tissue_conductivities = params.customConductivities;

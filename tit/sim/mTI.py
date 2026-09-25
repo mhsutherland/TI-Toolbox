@@ -171,7 +171,7 @@ class mTISimulation(BaseSimulation):
         if wiring is not None:
             self.logger.info("Carrier wiring: %s", wiring.describe())
             warn_if_carrier_metrics_unrequested(self.config, wiring, self.logger)
-            packed, psi = envelope_inputs(e_fields, wiring)
+            packed = envelope_inputs(e_fields, wiring)
 
         # Save intermediate per-carrier TI fields, for inspection only.
         ti_pair_suffixes = []
@@ -213,18 +213,14 @@ class mTISimulation(BaseSimulation):
         mout.elmdata = []
         if const.FIELD_TI_MAX in selected:
             mti_vectors = (
-                get_TI_vectors(e_fields)
-                if wiring is None
-                else get_TI_vectors(packed, psi=psi)
+                get_TI_vectors(e_fields) if wiring is None else get_TI_vectors(packed)
             )
             mti_field = np.linalg.norm(mti_vectors, axis=1)
             mout.add_element_field(mti_field, const.FIELD_MTI_MAX)
         if const.FIELD_TI_AVG in selected:
             # TI_avg: orientation-averaged companion to mTI_max, over all N
             # channel fields jointly (tit.calc.get_TI_avg).
-            mti_avg = (
-                get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed, psi=psi)
-            )
+            mti_avg = get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed)
             mout.add_element_field(mti_avg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
             # Carrier-exposure safety map (Cassarà 2025 Part I, Eq. 3): peak
@@ -333,8 +329,8 @@ class mTISimulation(BaseSimulation):
         if wiring is None:
             ti_normal = get_TI_dir(e_fields, normals)
         else:
-            packed, psi = envelope_inputs(e_fields, wiring)
-            ti_normal = get_TI_dir(packed, normals, psi=psi)
+            packed = envelope_inputs(e_fields, wiring)
+            ti_normal = get_TI_dir(packed, normals)
 
         mout = deepcopy(cms[0])
         mout.nodedata = []

@@ -255,7 +255,7 @@ test("configuring a row moves no cell in another row", async () => {
  * mid-row, the empty rows leave a blank second line, and a stray vertical rule separates the
  * action column."* Every claim below is one of those.
  */
-test("line 2 is unclipped, on line 1's grid, and every job is the same height", async () => {
+test("line 2 is unclipped, on line 1's grid, and jobs of one shape are the same height", async () => {
   const rows = montageRows();
   // Nothing is cut off: no cell on either line scrolls its own content.
   const clipped = await page
@@ -267,9 +267,9 @@ test("line 2 is unclipped, on line 1's grid, and every job is the same height", 
     );
   expect(clipped, "a cell clips its content vertically").toEqual([]);
 
-  // One height for every job of the same shape, configured or not — the table does not jump when
-  // a montage is picked. (An mTI job's four pairs and four currents legitimately take a second
-  // wrapped line at 1280; a TI job and an empty job must agree.)
+  // One height for every job of the same shape. Channels stack one per line (2026-09-24), so a
+  // configured job is as tall as its channel count makes it, and an empty job is one line shorter
+  // than a two-channel one.
   const heights = await page.evaluate(() => {
     const out: number[] = [];
     for (const line1 of document.querySelectorAll("tr[data-job-row]")) {
@@ -332,10 +332,10 @@ test("line 2 is unclipped, on line 1's grid, and every job is the same height", 
     }
     return out;
   });
-  // The empty job is as tall as the configured TI job beside it — nothing jumps when a montage is
-  // picked. (±1px: a row of controls and a row of text round differently.)
-  expect(Math.abs(withEmpty[2]! - withEmpty[1]!), `an unconfigured job is a different height: ${withEmpty.join(", ")}`).toBeLessThanOrEqual(1);
-  // A flex job is exactly as tall as a two-channel montage job: two lines, never three.
+  // The empty job holds one muted line where a TI job stacks its two channels, so it is shorter —
+  // the one deliberate height change when a montage is picked (2026-09-24, reversing 2026-09-06).
+  expect(withEmpty[2]!, `an unconfigured job is not shorter than a TI job: ${withEmpty.join(", ")}`).toBeLessThan(withEmpty[1]!);
+  // A flex job is exactly as tall as a two-channel montage job: the same two channel lines.
   await setJobSubject(page, empty, "ernie");
   await setJobSource(page, empty, "Flex result");
   await setJobMontage(page, empty, "flex_Thalamus_20260810_101500");
@@ -353,6 +353,46 @@ test("line 2 is unclipped, on line 1's grid, and every job is the same height", 
 
   await empty.getByRole("button", { name: /^Remove job / }).click();
   await expect(rows).toHaveCount(2);
+});
+
+/**
+ * Each channel's pair, current and frequency sit on a line of their own, and the derived carrier
+ * wiring on the line after them (2026-09-24). There is no phase input: polarity is electrode order.
+ */
+test("each channel has its own line, and the carrier wiring follows on the next", async () => {
+  const detail = jobDetail(montageRows().first());
+  const channels = detail.locator(".job-channel");
+  const n = await channels.count();
+  expect(n, "a channel per pair").toBeGreaterThanOrEqual(2);
+  const freqs = detail.locator('input[aria-label$="carrier frequency (Hz)"]');
+  await expect(freqs).toHaveCount(n);
+  await expect(detail.locator('input[aria-label$="phase (degrees)"]')).toHaveCount(0);
+
+  for (let i = 0; i < n; i++) {
+    await freqs.nth(i).fill("2000");
+    await freqs.nth(i).press("Tab");
+  }
+  const chip = detail.locator(".job-wiring-chip");
+  await expect(chip).toContainText("no modulation (TI_max = 0)");
+  await expect(chip).toContainText("coherent sum (electrode order matters)");
+
+  const lines = await detail.locator(".job-channel, .job-wiring-chip").evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), top: Math.round(r.top), bottom: Math.round(r.bottom) };
+    }),
+  );
+  expect(lines).toHaveLength(n + 1);
+  for (let i = 1; i < lines.length; i++) {
+    expect(lines[i]!.top, `line ${i} is not below line ${i - 1}`).toBeGreaterThanOrEqual(lines[i - 1]!.bottom - 1);
+    expect(Math.abs(lines[i]!.x - lines[0]!.x), `line ${i} is not left-aligned`).toBeLessThanOrEqual(1);
+  }
+
+  for (let i = 0; i < n; i++) {
+    await freqs.nth(i).fill("");
+    await freqs.nth(i).press("Tab");
+  }
+  await expect(chip).toHaveCount(0);
 });
 
 /**

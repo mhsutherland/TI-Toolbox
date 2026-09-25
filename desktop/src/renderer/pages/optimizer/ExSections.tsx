@@ -340,8 +340,8 @@ export function MExCarrierSection({ form, onChange }: { form: MExFormState; onCh
   // substitute, and guessing one would silently change the physics. Current always has a value:
   // clearing a pair falls back to 2.0 mA, the default every pair starts at.
   const currents = mexPairCurrents(form);
-  const setChannel = (key: "frequencies" | "phases", i: number, next: number | undefined) =>
-    onChange({ [key]: form[key].map((old, idx) => (idx === i ? (next ?? null) : old)) });
+  const setFrequency = (i: number, next: number | undefined) =>
+    onChange({ frequencies: form.frequencies.map((old, idx) => (idx === i ? (next ?? null) : old)) });
   const setCurrent = (i: number, next: number | undefined) =>
     onChange({ currents: currents.map((old, idx) => (idx === i ? (next ?? 2.0) : old)) });
   return (
@@ -353,14 +353,14 @@ export function MExCarrierSection({ form, onChange }: { form: MExFormState; onCh
         (hint.kind === "positional" ? "" : ` · ${hint.coherentSum ? "shared carrier" : hint.summary.split(" · ").slice(-1)[0]}`) +
         (form.symmetricBucket ? " · symmetric" : "")
       }
-      helpSlot={<HelpButton label="carrier frequency and phase" text={MEX_CARRIER_HELP} />}
+      helpSlot={<HelpButton label="carrier frequency" text={MEX_CARRIER_HELP} />}
     >
       <>
         {Array.from({ length: MEX_CHANNELS }, (_, i) => (
           <Field
             key={i}
             label={`Pair ${i + 1} carrier`}
-            help={i === 0 ? "Current, carrier frequency and phase of this pair. Blank frequencies keep the positional wiring: pairs 1&2 beat, pairs 3&4 beat." : undefined}
+            help={i === 0 ? "Current and carrier frequency of this pair. Blank frequencies keep the positional wiring: pairs 1&2 beat, pairs 3&4 beat. Polarity is the bucket order (+ / -)." : undefined}
           >
             <div className="field-row-inline">
               <NumberInput
@@ -374,20 +374,12 @@ export function MExCarrierSection({ form, onChange }: { form: MExFormState; onCh
               />
               <NumberInput
                 value={form.frequencies[i] ?? undefined}
-                onValueChange={(v) => setChannel("frequencies", i, v)}
+                onValueChange={(v) => setFrequency(i, v)}
                 unit="Hz"
                 min={0}
                 step={10}
                 placeholder="—"
                 aria-label={`Pair ${i + 1} carrier frequency (Hz)`}
-              />
-              <NumberInput
-                value={form.phases[i] ?? undefined}
-                onValueChange={(v) => setChannel("phases", i, v)}
-                unit="°"
-                step={90}
-                placeholder="0"
-                aria-label={`Pair ${i + 1} phase (degrees)`}
               />
             </div>
           </Field>

@@ -9,9 +9,11 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
 ---
 ### Unreleased
 
-- **Carrier frequency and phase can be set per channel.** The Simulator's job rows take a
-  **Frequency** (Hz) and **Phase** (°) per electrode pair, as does the Optimizer's **Carriers**
-  section for an mTI (4-pair) search. Leave them blank and nothing changes: the toolbox keeps
+- **Carrier frequency can be set per channel.** The Simulator's job rows take a **Frequency** (Hz)
+  per electrode pair, each channel on a line of its own, as does the Optimizer's **Carriers**
+  section for an mTI (4-pair) search. Polarity is the electrode order, the first electrode of a pair
+  being its `+`; there is no phase input, because reversing a pair is exactly a 180° phase
+  reversal. Leave them blank and nothing changes: the toolbox keeps
   reading a montage positionally — each pair at its own distinct frequency, consecutive pairs
   beating — which is how every earlier version computed every result.
 
@@ -32,8 +34,7 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
 
   The job row states the derived wiring in words, e.g. `2 channels · 1 frequency · no modulation
   (TI_max = 0) · coherent sum (electrode order matters)`. Frequencies implying more than one
-  difference frequency, or an elliptically polarised carrier, are rejected rather than
-  approximated. **Frequency does not make the FEM frequency-dependent** — dielectric dispersion is
+  difference frequency are rejected rather than approximated. **Frequency does not make the FEM frequency-dependent** — dielectric dispersion is
   still not modelled. See
   [Channels and Carriers]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers).
 
@@ -46,7 +47,7 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
   frequencies filled in and read `hf_peak` / `hf_sar`.
 
 - **mTI Ex-search takes a current per pair.** Each **Pair N carrier** row in the Optimizer's
-  Carriers section now has its own **mA** beside frequency and phase, replacing the single shared
+  Carriers section now has its own **mA** beside its frequency, replacing the single shared
   **Pair current** field; every pair starts at 2.0 mA, so an untouched form runs exactly as before.
   The search ranks electrodes at the currents you set and never varies them — two-channel Ex still
   sweeps current splits, mTI does not. Unequal currents appear in the run name

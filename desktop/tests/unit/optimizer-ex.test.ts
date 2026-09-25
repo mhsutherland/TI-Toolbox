@@ -122,16 +122,15 @@ describe("Optimizer Ex/mEx defaults validate against contracts/generated/config.
     it("sends nulls for an untouched form, so the run keeps the positional wiring", () => {
       const config = build({});
       expect(config.frequencies_hz).toBeNull();
-      expect(config.phases_deg).toBeNull();
+      expect(config).not.toHaveProperty("phases_deg");
       expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
     });
 
-    it("sends both arrays once every channel has a frequency", () => {
+    it("sends the frequencies once every channel has one", () => {
       const config = build({ frequencies: [2000, 2010, 4000, 4010] });
       expect(config.frequencies_hz).toEqual([2000, 2010, 4000, 4010]);
-      // Phases zero-fill: the server rejects phases_deg without frequencies_hz, so an
-      // explicit all-zero drive is what "no phase offsets" has to mean on the wire.
-      expect(config.phases_deg).toEqual([0, 0, 0, 0]);
+      // Polarity is the bucket order; there is no phase on the wire.
+      expect(config).not.toHaveProperty("phases_deg");
       expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
     });
 
@@ -142,24 +141,11 @@ describe("Optimizer Ex/mEx defaults validate against contracts/generated/config.
       expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
     });
 
-    it("carries a per-channel phase, 180 being a polarity reversal", () => {
-      const config = build({ frequencies: [2000, 2000, 2010, 2010], phases: [0, 180, 0, null] });
-      expect(config.phases_deg).toEqual([0, 180, 0, 0]);
-      expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
-    });
-
     it("treats a partly filled drive as unset", () => {
       // A frequency on some channels and not others has no meaning the server could act on.
       const config = build({ frequencies: [2000, 2010, null, null] });
       expect(config.frequencies_hz).toBeNull();
-      expect(config.phases_deg).toBeNull();
       expect(validate("MExConfig", config as unknown as Record<string, unknown>)).toEqual([]);
-    });
-
-    it("ignores phases when no frequency was set", () => {
-      const config = build({ phases: [0, 180, 0, 0] });
-      expect(config.frequencies_hz).toBeNull();
-      expect(config.phases_deg).toBeNull();
     });
 
     it("rejects a non-positive frequency as unset rather than sending it", () => {

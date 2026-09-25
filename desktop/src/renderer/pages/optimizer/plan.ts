@@ -120,18 +120,6 @@ export function mexCarrierReason(form: MExFormState): string | null {
   if (hint.kind === "unresolved") {
     return "These carrier frequencies imply more than one difference frequency, which the modulation envelope cannot represent.";
   }
-  if (form.phases.some((p) => p != null && Math.abs(((p % 180) + 180) % 180) > 1e-9)) {
-    // Within one carrier, a phase that is neither 0 nor 180 makes the summed field
-    // elliptically polarised, which the (P, Q) envelope is not derived for.
-    const groups = new Map<number, number[]>();
-    freqs.forEach((f, i) => groups.set(f, [...(groups.get(f) ?? []), i]));
-    for (const members of groups.values()) {
-      const phases = members.map((i) => ((((form.phases[i] ?? 0) % 180) + 180) % 180));
-      if (phases.some((p) => Math.abs(p - (phases[0] ?? 0)) > 1e-9)) {
-        return "Channels on one carrier must have phases 0 or 180 degrees apart; other offsets make the carrier elliptically polarised, which the envelope is not defined for.";
-      }
-    }
-  }
   return null;
 }
 

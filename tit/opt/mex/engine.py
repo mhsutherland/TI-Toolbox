@@ -76,8 +76,7 @@ class MExSearchEngine(ExSearchEngine):
         if self.wiring is None:
             vectors = get_TI_vectors(fields)
         else:
-            paired, psi, unpaired = envelope_inputs(fields, self.wiring)
-            vectors = get_TI_vectors(paired, psi=psi, unpaired=unpaired)
+            vectors = get_TI_vectors(envelope_inputs(fields, self.wiring))
         metric = np.linalg.norm(vectors, axis=1)
 
         data = self._roi_metrics(metric[roi_pos], metric[gm_pos])

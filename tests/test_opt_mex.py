@@ -1099,7 +1099,7 @@ class TestInferSymmetryEegCsv:
 
 
 class TestMExCarrierDrive:
-    """`frequencies_hz` / `phases_deg` on MExConfig, and which searches accept them.
+    """`frequencies_hz` on MExConfig, and which searches accept them.
 
     The guard is deliberately narrow, and this pins *why*. Pool mode enumerates one montage per
     symmetry *class*, and those classes come from the envelope's invariances under the positional,
@@ -1181,32 +1181,59 @@ class TestMExCarrierDrive:
         with pytest.raises(ValueError, match="no difference frequency"):
             self._cfg(frequencies_hz=[2000.0] * 4)
 
-    def test_elliptical_carrier_is_refused(self):
-        with pytest.raises(ValueError, match="elliptically polarised"):
-            self._cfg(
-                frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
-                phases_deg=[0.0, 90.0, 0.0, 0.0],
-            )
-
     def test_wrong_arity_is_refused(self):
         with pytest.raises(ValueError, match="drives 4 electrode pairs"):
             self._cfg(frequencies_hz=[2000.0, 2010.0])
 
-    def test_phases_without_frequencies_are_refused(self):
-        with pytest.raises(ValueError, match="without frequencies_hz"):
+    def test_phase_is_not_a_config_field(self):
+        # Polarity is electrode order; there is no separate phase input.
+        with pytest.raises(TypeError):
             self._cfg(phases_deg=[0.0, 180.0, 0.0, 0.0])
 
     def test_drive_round_trips_through_config_io(self):
         from tit.config_io import deserialize_config, serialize_config
         from tit.opt.config import MExConfig
 
-        cfg = self._cfg(
-            frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0],
-            phases_deg=[0.0, 180.0, 0.0, 0.0],
-        )
+        cfg = self._cfg(frequencies_hz=[2000.0, 2000.0, 2010.0, 2010.0])
         data = serialize_config(cfg)
         assert data["frequencies_hz"] == [2000.0, 2000.0, 2010.0, 2010.0]
-        assert data["phases_deg"] == [0.0, 180.0, 0.0, 0.0]
+        assert "phases_deg" not in data
         back = deserialize_config(MExConfig, data)
         assert back.frequencies_hz == cfg.frequencies_hz
-        assert back.phases_deg == cfg.phases_deg
+
+
+@pytest.mark.unit
+class TestComputeMtiFieldWithWiring:
+    """The wired mEx scoring path runs end to end (it crashed with frequencies set)."""
+
+    def _run(self, monkeypatch, units, frequencies):
+        import tit.opt.mex.engine as engine_mod
+        from tit.calc import get_TI_vectors
+        from tit.wiring import derive_wiring
+
+        engine = _make_mex_engine()
+        _setup_engine_fields(engine)
+        engine.wiring = derive_wiring(frequencies)
+        monkeypatch.setattr(
+            engine_mod.TI,
+            "get_field",
+            MagicMock(side_effect=[np.tile(u, (5, 1)) for u in units]),
+        )
+        monkeypatch.setattr(engine_mod, "get_TI_vectors", get_TI_vectors)
+        electrodes = ("A1", "A2", "B1", "B2", "C1", "C2", "D1", "D2")
+        return engine.compute_mti_field(electrodes, currents_mA=(1.0,) * 4)
+
+    def test_shared_carriers_are_summed_before_they_beat(self, monkeypatch):
+        # Pairs A,B at one frequency and C,D at the other: 1.0 along x beats
+        # against 1.0 along x, a depth of 2 * 1.0. (get_field is mocked, so the
+        # current it would apply is not; the fields are used as given.)
+        units = ([0.6, 0, 0], [0.4, 0, 0], [0.5, 0, 0], [0.5, 0, 0])
+        result = self._run(monkeypatch, units, [2000.0, 2000.0, 2010.0, 2010.0])
+        assert result["TestROI_TImax_ROI"] == pytest.approx(2.0)
+
+    def test_reversing_a_shared_pair_changes_the_score(self, monkeypatch):
+        # Electrode order is the only polarity control: pair B reversed (its
+        # field negated) cancels against A before the beat, 0.2 against 1.0.
+        units = ([0.6, 0, 0], [-0.4, 0, 0], [0.5, 0, 0], [0.5, 0, 0])
+        result = self._run(monkeypatch, units, [2000.0, 2000.0, 2010.0, 2010.0])
+        assert result["TestROI_TImax_ROI"] == pytest.approx(2 * 0.2)

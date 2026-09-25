@@ -178,9 +178,9 @@ describe("rowFormReason — the per-row half of the disabled-Run sentence", () =
     );
   });
   describe("mEx carrier drive", () => {
-    const withDrive = (frequencies: (number | null)[], phases?: (number | null)[]) => {
+    const withDrive = (frequencies: (number | null)[]) => {
       const row = exRow("ernie", savedRoi(["A.csv"]), 4);
-      return { ...row, mex: { ...row.mex, frequencies, phases: phases ?? [null, null, null, null] } };
+      return { ...row, mex: { ...row.mex, frequencies } };
     };
 
     it("is silent when no frequencies are set — the positional wiring is fine", () => {
@@ -202,15 +202,6 @@ describe("rowFormReason — the per-row half of the disabled-Run sentence", () =
 
     it("blocks a drive implying more than one difference frequency", () => {
       expect(rowFormReason(withDrive([2000, 2010, 2020, 4000]))).toContain("more than one difference frequency");
-    });
-
-    it("blocks an elliptically polarised carrier", () => {
-      // Two channels on 2000 Hz, 90 degrees apart: the (P, Q) envelope is not derived for it.
-      expect(rowFormReason(withDrive([2000, 2000, 2010, 2010], [0, 90, 0, 0]))).toContain("elliptically polarised");
-    });
-
-    it("allows 180 degrees, which is a polarity reversal rather than an ellipse", () => {
-      expect(rowFormReason(withDrive([2000, 2000, 2010, 2010], [0, 180, 0, 0]))).toBeNull();
     });
   });
 });

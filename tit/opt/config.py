@@ -835,7 +835,7 @@ class FlexResult:
 # ── Exhaustive search config ─────────────────────────────────────────────────
 
 
-def _validate_optimizer_drive(frequencies_hz, phases_deg, n_pairs, label):
+def _validate_optimizer_drive(frequencies_hz, n_pairs, label):
     """Check an optimizer's carrier drive and return its wiring, or ``None``.
 
     The optimizer treats frequency as a fixed input: it honours the physics the
@@ -846,8 +846,8 @@ def _validate_optimizer_drive(frequencies_hz, phases_deg, n_pairs, label):
 
     Parameters
     ----------
-    frequencies_hz, phases_deg : list of float or None
-        Per-channel drive, one entry per electrode pair.
+    frequencies_hz : list of float or None
+        Per-channel carrier frequency, one entry per electrode pair.
     n_pairs : int
         How many electrode pairs this search drives.
     label : str
@@ -866,25 +866,17 @@ def _validate_optimizer_drive(frequencies_hz, phases_deg, n_pairs, label):
         objective undefined or identically zero.
     """
     if frequencies_hz is None:
-        if phases_deg is not None:
-            raise ValueError(
-                f"{label}: phases_deg was given without frequencies_hz. A "
-                "phase is only meaningful relative to a carrier frequency."
-            )
         return None
-    for name, values in (
-        ("frequencies_hz", frequencies_hz),
-        ("phases_deg", phases_deg),
-    ):
-        if values is not None and len(values) != n_pairs:
-            raise ValueError(
-                f"{label}: this search drives {n_pairs} electrode pairs but "
-                f"{len(values)} {name} were given; one per pair is required."
-            )
+    if len(frequencies_hz) != n_pairs:
+        raise ValueError(
+            f"{label}: this search drives {n_pairs} electrode pairs but "
+            f"{len(frequencies_hz)} frequencies_hz were given; one per pair is "
+            "required."
+        )
 
     from tit.wiring import derive_wiring
 
-    wiring = derive_wiring(frequencies_hz, phases_deg)
+    wiring = derive_wiring(frequencies_hz)
     if not wiring.has_modulation:
         raise ValueError(
             f"{label}: these frequencies produce no difference frequency "
@@ -893,12 +885,6 @@ def _validate_optimizer_drive(frequencies_hz, phases_deg, n_pairs, label):
             "optimizer maximises the envelope; give the channels frequencies "
             "that beat, or run the montage through the Simulator instead, "
             "where the carrier field is reported."
-        )
-    if not wiring.is_real:
-        raise ValueError(
-            f"{label}: the channels' phases sum to an elliptically polarised "
-            "carrier, which the modulation envelope is not defined for. Use "
-            "phases 0 or 180 degrees apart within one frequency."
         )
     return wiring
 
@@ -1115,9 +1101,8 @@ class ExConfig:
     # ── Carrier drive, one entry per channel (see tit.wiring) ───────────
     # None keeps the positional reading: each pair its own frequency,
     # consecutive pairs beating. Frequency is a fixed input here -- the
-    # search honours it but never varies it.
+    # search honours it but never varies it. Polarity is electrode order.
     frequencies_hz: list[float] | None = None
-    phases_deg: list[float] | None = None
 
     def __post_init__(self):
         if isinstance(self.electrodes, dict):
@@ -1162,14 +1147,12 @@ class ExConfig:
         if self.symmetry_pairing not in ("within_pairs", "cross_pairs"):
             raise ValueError("symmetry_pairing must be 'within_pairs' or 'cross_pairs'")
 
-        _validate_optimizer_drive(self.frequencies_hz, self.phases_deg, 2, "ExConfig")
+        _validate_optimizer_drive(self.frequencies_hz, 2, "ExConfig")
 
     @property
     def carrier_wiring(self):
         """The derived carrier structure, or ``None`` when none was configured."""
-        return _validate_optimizer_drive(
-            self.frequencies_hz, self.phases_deg, 2, "ExConfig"
-        )
+        return _validate_optimizer_drive(self.frequencies_hz, 2, "ExConfig")
 
 
 @dataclass
@@ -1402,9 +1385,8 @@ class MExConfig:
     # ── Carrier drive, one entry per channel (see tit.wiring) ───────────
     # None keeps the positional reading: each pair its own frequency,
     # consecutive pairs beating. Frequency is a fixed input here -- the
-    # search honours it but never varies it.
+    # search honours it but never varies it. Polarity is electrode order.
     frequencies_hz: list[float] | None = None
-    phases_deg: list[float] | None = None
 
     # ── Per-pair current, one entry per pair ─────────────────────────────
     # None drives every pair at current_mA. Last, so positional construction
@@ -1474,9 +1456,7 @@ class MExConfig:
         if self.symmetry_pairing not in ("within_pairs", "cross_pairs"):
             raise ValueError("symmetry_pairing must be 'within_pairs' or 'cross_pairs'")
 
-        wiring = _validate_optimizer_drive(
-            self.frequencies_hz, self.phases_deg, 4, "MExConfig"
-        )
+        wiring = _validate_optimizer_drive(self.frequencies_hz, 4, "MExConfig")
         if (
             wiring is not None
             and not wiring.is_positional()
@@ -1499,9 +1479,7 @@ class MExConfig:
     @property
     def carrier_wiring(self):
         """The derived carrier structure, or ``None`` when none was configured."""
-        return _validate_optimizer_drive(
-            self.frequencies_hz, self.phases_deg, 4, "MExConfig"
-        )
+        return _validate_optimizer_drive(self.frequencies_hz, 4, "MExConfig")
 
     @property
     def pair_currents_mA(self) -> tuple[float, float, float, float]:

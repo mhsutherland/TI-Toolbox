@@ -1099,3 +1099,20 @@ dataclass rejects anything other than four finite positive values, and rejects u
 `PoolElectrodes`, whose symmetry classes treat the pair slots as interchangeable. The desktop
 `buildMExConfig` sends equal per-pair currents as `current_mA` with `currents_mA: null`, and
 unequal ones as `currents_mA`.
+
+## 2026-09-24 — Remove `phases_deg` from the carrier drive
+
+Generated-schema change only: `contracts/openapi.yaml` is untouched. `config.schema.json`,
+`openapi.json` and `schema.d.ts` were regenerated from the dataclasses (`dev/build_contracts.py`,
+`npm run gen:api`). Pure deletions: 105 lines.
+
+**Removed**: `phases_deg` from `SimulationConfig`, `ExConfig` and `MExConfig`, added on 2026-09-22
+and never released. A 0° or 180° phase duplicated electrode order: reversing a pair negates its
+field, which is exactly a 180° phase. Offsets other than 0°/180° are no longer expressible.
+`frequencies_hz` is unchanged.
+
+`SimulationConfig` keeps `additionalProperties: false`, so a payload that still carries
+`phases_deg` is now rejected by the schema. `tit.config_io.deserialize_config` in its default
+non-strict mode ignores the key, so a config written by the 2026-09-22 build reloads with its phases
+dropped. A run that used a 180° phase then reloads as in phase; re-express it by swapping that
+pair's electrodes.

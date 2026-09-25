@@ -181,30 +181,26 @@ describe("buildSimulationConfig carrier drive", () => {
   it("sends no drive keys at all for an untouched row", async () => {
     const config = buildSimulationConfig(row(), DEFAULTS);
     expect(config).not.toHaveProperty("frequencies_hz");
-    expect(config).not.toHaveProperty("phases_deg");
     expect((await validate("SimulationConfig", config)).valid).toBe(true);
   });
 
-  it("sends the frequencies, and zero phases, when only frequencies are set", async () => {
+  it("sends the frequencies, and no phase, once every channel has one", async () => {
     const config = buildSimulationConfig(row({ frequencies: "2000,2010" }), DEFAULTS);
     expect(config.frequencies_hz).toEqual([2000, 2010]);
-    // The server rejects phases without frequencies, so an explicit all-zero
-    // drive is what "no phase offsets" has to mean on the wire.
-    expect(config.phases_deg).toEqual([0, 0]);
-    expect((await validate("SimulationConfig", config)).valid).toBe(true);
-  });
-
-  it("carries a polarity reversal as a 180 degree phase", async () => {
-    const config = buildSimulationConfig(row({ frequencies: "2000,2000", phases: "0,180" }), DEFAULTS);
-    expect(config.frequencies_hz).toEqual([2000, 2000]);
-    expect(config.phases_deg).toEqual([0, 180]);
-    expect((await validate("SimulationConfig", config)).valid).toBe(true);
-  });
-
-  it("ignores phases when no frequency was set", async () => {
-    // Phase alone is meaningless, and the server rejects it; the page never sends it.
-    const config = buildSimulationConfig(row({ phases: "0,180" }), DEFAULTS);
+    // Polarity is electrode order; there is no phase on the wire.
     expect(config).not.toHaveProperty("phases_deg");
     expect((await validate("SimulationConfig", config)).valid).toBe(true);
+  });
+
+  it("carries a shared carrier, where electrode order sets the polarity", async () => {
+    const config = buildSimulationConfig(row({ frequencies: "2000,2000" }), DEFAULTS);
+    expect(config.frequencies_hz).toEqual([2000, 2000]);
+    expect((await validate("SimulationConfig", config)).valid).toBe(true);
+  });
+
+  it("rejects a payload that still carries phases_deg", async () => {
+    // The field is gone from the contract; SimulationConfig forbids unknown keys.
+    const config = { ...buildSimulationConfig(row({ frequencies: "2000,2000" }), DEFAULTS), phases_deg: [0, 180] };
+    expect((await validate("SimulationConfig", config)).valid).toBe(false);
   });
 });

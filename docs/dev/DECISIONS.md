@@ -52,8 +52,9 @@ rationale below consolidates later amendments without treating superseded design
 | 33 | 2026-09-18 | Path validation at the boundary: one name grammar, one lexical join, one physical containment check; CodeQL alerts resolved by shape, not suppression | amends 30 |
 | 34 | 2026-09-19 | A job's CPU/RSS are its process tree's, sampled once a second; peak and average persist with the record; the Jobs table drops STAGE | live |
 | 35 | 2026-09-19 | The Artifacts tab lists the job's output folder from disk (`GET /api/jobs/{id}/artifacts`); a runner registers where it wrote, not what | live |
-| 36 | 2026-09-22 | **Carrier frequency and phase are explicit per channel; coherence is derived, not assumed.** Supersedes the positional carrier model (2026-09-07) as the *default*, which it keeps | live |
+| 36 | 2026-09-22 | **Carrier frequency and phase are explicit per channel; coherence is derived, not assumed.** Supersedes the positional carrier model (2026-09-07) as the *default*, which it keeps | phase half reversed by 38 |
 | 37 | 2026-09-22 | mEx takes **fixed per-pair currents** (`MExConfig.currents_mA`); no mEx current-split search; pool mode refuses unequal currents | live |
+| 38 | 2026-09-24 | **Phase removed from the carrier drive; polarity is electrode order alone.** `frequencies_hz` stays; the Simulator shows one channel per line | reverses the phase half of 36 |
 
 ## Runtime and distribution
 
@@ -391,6 +392,10 @@ configuration contract if restored. No released version shipped the short-lived 
 
 ### 2026-09-22 — Explicit carrier frequency and phase
 
+> **Phase reversed by [2026-09-24](#2026-09-24--phase-removed-from-the-carrier-drive).**
+> `phases_deg`, `psi` from the wiring and the elliptical-carrier handling below are gone; the
+> frequency half stands as written.
+
 **Decision.** `frequencies_hz` and `phases_deg`, one entry per electrode pair, sit beside
 `intensities` on `SimulationConfig` / `ExConfig` / `MExConfig`. Both default to `None`, which keeps
 the positional reading of [2026-09-07](#2026-09-07--positional-carrier-model-and-one-pair-count-rule)
@@ -449,6 +454,35 @@ submits mTI in bucket mode, so this binds only Python callers.
 
 **Revisit if.** A per-pair split search is wanted and can be made affordable, for example by
 restricting it to the top candidates of an equal-current run.
+
+### 2026-09-24 — Phase removed from the carrier drive
+
+**Decision.** `phases_deg` is removed from `SimulationConfig`, `ExConfig` and `MExConfig`, and from
+the Simulator and mEx UI. Polarity is set only by electrode order: reversing a pair negates its FEM
+field. `derive_wiring` takes frequencies alone, and a coherent group is the plain vector sum of its
+members. `Wiring.psi_rad`, `CoherentGroup.signs`/`phase_deg`, `GroupAmplitude.imag`, the
+elliptical-carrier paths in `tit.fields` and the elliptical refusal in `envelope_inputs` are
+deleted. `envelope_inputs` now returns the packed field list alone. `tit.calc`'s `psi` argument
+(which predates ADR 36) is kept and never set. The Simulator's job row gives each channel its own
+line (pair, mA, Hz), with the derived-wiring readout on the line after them. This reverses the
+equal-height rule of 2026-09-06: a configured job is now taller than an empty one.
+
+**Why.** At 0° and 180° a phase duplicated electrode order exactly. Two sub-LA runs, one with a
+swapped pair and one with a 180° phase, gave identical `hf_peak` (max difference 3.5e-8 V/m). Two
+controls for one quantity invited contradictory settings. Offsets other than 0°/180° were the only
+new capability: elliptically polarised same-frequency carriers, which the Simulator refused anyway
+by failing in `envelope_inputs`, and non-zero envelope phase between beating mTI carriers, which
+needs phase-locked hardware and which no current study uses. Removing `psi` from `envelope_inputs`
+also fixed a crash on this branch: the Ex and mEx engines unpacked three values from a two-value
+return, so any search with frequencies set failed at scoring.
+
+**Cost.** Envelope offsets other than 0°/180° in mTI, and rotating same-frequency carriers, can no
+longer be expressed. A config written between 2026-09-22 and 2026-09-24 that carries `phases_deg`
+reloads with the key ignored (`config_io` is non-strict by default), so a 180° phase in such a
+config reloads as in phase. No released version shipped the field.
+
+**Revisit if.** A study needs arbitrary relative phase: phase-locked mTI envelope offsets, or
+same-frequency carriers in quadrature. `tit.calc.psi` is the hook for the former.
 
 ## Development milestones
 

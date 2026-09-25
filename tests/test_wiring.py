@@ -47,22 +47,10 @@ class TestGrouping:
         assert [g.frequency_hz for g in w.groups] == [2000.0, 2010.0, 4000.0, 4010.0]
         assert [g.members for g in w.groups] == [(1,), (3,), (0,), (2,)]
 
-    def test_anti_phase_becomes_a_sign_not_a_separate_group(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 180.0])
-        assert w.groups[0].signs == (1.0, -1.0)
-        assert w.groups[0].phase_deg == 0.0
-        assert w.groups[0].is_real
-
-    def test_a_common_offset_phase_is_factored_out(self):
-        w = derive_wiring([2000.0, 2000.0], [30.0, 210.0])
-        assert w.groups[0].phase_deg == pytest.approx(30.0)
-        assert w.groups[0].signs == (1.0, -1.0)
-
-    def test_quadrature_phases_make_the_group_elliptical(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 90.0])
-        assert w.groups[0].signs is None
-        assert not w.groups[0].is_real
-        assert not w.is_real
+    def test_phase_is_not_part_of_the_drive(self):
+        # Polarity is electrode order; derive_wiring takes frequencies only.
+        with pytest.raises(TypeError):
+            derive_wiring([2000.0, 2000.0], [0.0, 180.0])
 
 
 class TestBeatMatching:
@@ -101,13 +89,9 @@ class TestBeatMatching:
         assert w.beat_pairs == ((0, 1),)
         assert w.has_coherent_sum and w.has_modulation
 
-    def test_envelope_phase_is_the_carrier_phase_difference(self):
-        w = derive_wiring([2000.0, 2010.0], [0.0, 90.0])
-        assert w.psi_rad == pytest.approx((np.pi / 2,))
-
-    def test_phase_aligned_carriers_give_zero_psi(self):
-        w = derive_wiring([2000.0, 2010.0, 4000.0, 4010.0])
-        assert w.psi_rad == pytest.approx((0.0, 0.0))
+    def test_the_positional_layout_is_recognised(self):
+        assert derive_wiring([2000.0, 2010.0, 4000.0, 4010.0]).is_positional()
+        assert not derive_wiring([2000.0, 2000.0, 2010.0, 2010.0]).is_positional()
 
 
 class TestRefusal:
@@ -131,18 +115,9 @@ class TestRefusal:
         with pytest.raises(WiringError, match="finite and positive"):
             derive_wiring([2000.0, float("nan")])
 
-    def test_phase_count_must_match(self):
-        with pytest.raises(WiringError, match="one of each is required"):
-            derive_wiring([2000.0, 2010.0], [0.0])
-
     def test_empty(self):
         with pytest.raises(WiringError, match="At least one"):
             derive_wiring([])
-
-    def test_envelope_refuses_an_elliptical_carrier(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 90.0])
-        with pytest.raises(WiringError, match="elliptically polarised"):
-            envelope_inputs(_fields([1, 0, 0], [0, 1, 0]), w)
 
 
 @pytest.fixture
@@ -187,31 +162,25 @@ class TestWarnings:
 class TestCoherentAmplitudes:
     """The vector pre-sum -- the only thing that makes electrode order matter."""
 
-    def test_same_frequency_in_phase_adds(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 0.0])
+    def test_same_frequency_same_polarity_adds(self):
+        w = derive_wiring([2000.0, 2000.0])
         amps = coherent_amplitudes(_fields([1, 0, 0], [0.8, 0, 0]), w)
-        assert amps[0].real[0] == pytest.approx([1.8, 0.0, 0.0])
+        assert amps[0].field[0] == pytest.approx([1.8, 0.0, 0.0])
 
-    def test_same_frequency_anti_phase_cancels(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 180.0])
-        amps = coherent_amplitudes(_fields([1, 0, 0], [0.8, 0, 0]), w)
-        assert amps[0].real[0] == pytest.approx([0.2, 0.0, 0.0])
+    def test_reversing_one_pair_cancels(self):
+        # Swapping a pair's electrodes negates its FEM field -- the only way
+        # polarity enters -- and at one frequency that cancels, not adds.
+        w = derive_wiring([2000.0, 2000.0])
+        amps = coherent_amplitudes(_fields([1, 0, 0], [-0.8, 0, 0]), w)
+        assert amps[0].field[0] == pytest.approx([0.2, 0.0, 0.0])
+        assert amps[0].mean_square[0] == pytest.approx(0.04)
 
     def test_distinct_frequencies_are_not_summed(self):
         w = derive_wiring([2000.0, 2010.0])
         amps = coherent_amplitudes(_fields([1, 0, 0], [0.8, 0, 0]), w)
         assert len(amps) == 2
-        assert amps[0].real[0] == pytest.approx([1.0, 0.0, 0.0])
-        assert amps[1].real[0] == pytest.approx([0.8, 0.0, 0.0])
-
-    def test_elliptical_group_keeps_both_quadratures(self):
-        w = derive_wiring([2000.0, 2000.0], [0.0, 90.0])
-        amps = coherent_amplitudes(_fields([1, 0, 0], [0, 1, 0]), w)
-        assert amps[0].real[0] == pytest.approx([1.0, 0.0, 0.0])
-        assert amps[0].imag[0] == pytest.approx([0.0, 1.0, 0.0])
-        # A circular carrier: |E(t)| is constant, so the squared amplitude is
-        # the sum over both quadratures.
-        assert amps[0].mean_square[0] == pytest.approx(2.0)
+        assert amps[0].field[0] == pytest.approx([1.0, 0.0, 0.0])
+        assert amps[1].field[0] == pytest.approx([0.8, 0.0, 0.0])
 
     def test_field_count_must_match_the_wiring(self):
         w = derive_wiring([2000.0, 2010.0])
@@ -228,24 +197,23 @@ class TestCoherentAmplitudes:
 class TestEnvelopeInputs:
     """The packing handed to tit.calc.
 
-    The contract is deliberately the plain ``(fields, psi)`` pair
-    ``get_TI_vectors`` already takes: a carrier with no beat partner is emitted
+    The contract is deliberately the plain field list ``get_TI_vectors``
+    already takes: a carrier with no beat partner is emitted
     paired with a zero field, which contributes its power to ``P`` and nothing
     to ``Q``. That is what lets ``tit.calc`` stay completely unmodified.
     """
 
     def test_two_beating_carriers_are_one_consecutive_pair(self):
         w = derive_wiring([2000.0, 2010.0])
-        packed, psi = envelope_inputs(_fields([1, 0, 0], [0, 1, 0]), w)
+        packed = envelope_inputs(_fields([1, 0, 0], [0, 1, 0]), w)
         assert len(packed) == 2
         assert packed[0][0] == pytest.approx([1.0, 0.0, 0.0])
         assert packed[1][0] == pytest.approx([0.0, 1.0, 0.0])
-        assert psi == pytest.approx([0.0])
 
     def test_no_beat_emits_the_coherent_sum_against_a_zero_partner(self):
         w = derive_wiring([2000.0, 2000.0])
-        packed, psi = envelope_inputs(_fields([1, 0, 0], [0.8, 0, 0]), w)
-        assert len(packed) == 2 and len(psi) == 1
+        packed = envelope_inputs(_fields([1, 0, 0], [0.8, 0, 0]), w)
+        assert len(packed) == 2
         # The two channels summed as vectors first ...
         assert packed[0][0] == pytest.approx([1.8, 0.0, 0.0])
         # ... and partnered with zero, so there is nothing to beat against.
@@ -253,11 +221,9 @@ class TestEnvelopeInputs:
 
     def test_non_beating_carrier_rides_alongside_a_beat(self):
         w = derive_wiring([2000.0, 2010.0, 9000.0])
-        packed, psi = envelope_inputs(
-            _fields([1, 0, 0], [0, 1, 0], [0, 0, 1]), w
-        )
+        packed = envelope_inputs(_fields([1, 0, 0], [0, 1, 0], [0, 0, 1]), w)
         # One real carrier pair, then the lone carrier against zero.
-        assert len(packed) == 4 and len(psi) == 2
+        assert len(packed) == 4
         assert packed[2][0] == pytest.approx([0.0, 0.0, 1.0])
         assert packed[3][0] == pytest.approx([0.0, 0.0, 0.0])
 
@@ -269,11 +235,15 @@ class TestEnvelopeInputs:
         none = derive_wiring([2000.0, 2000.0])
         fields = _fields([1, 0, 0], [0.8, 0, 0])
 
-        packed, psi = envelope_inputs(fields, beat)
-        assert float(np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)[0]) == pytest.approx(1.6)
+        packed = envelope_inputs(fields, beat)
+        assert float(
+            np.linalg.norm(get_TI_vectors(packed), axis=1)[0]
+        ) == pytest.approx(1.6)
 
-        packed, psi = envelope_inputs(fields, none)
-        assert float(np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)[0]) == pytest.approx(0.0)
+        packed = envelope_inputs(fields, none)
+        assert float(
+            np.linalg.norm(get_TI_vectors(packed), axis=1)[0]
+        ) == pytest.approx(0.0)
 
 
 class TestBeatUpperBound:

@@ -1,4 +1,4 @@
-"""Carrier wiring -- which channels are coherent, which beat, and at what phase.
+"""Carrier wiring -- which channels are coherent and which beat.
 
 Every field quantity the toolbox reports depends on a fact the FEM cannot supply:
 which electrode pairs are driven at the *same* frequency and which at different
@@ -20,17 +20,25 @@ wrong in a way that hides rather than shows:
 * ``+/- +/-`` and ``+/- -/+`` differ physically -- one sums, the other cancels --
   yet every shipped metric returned the same number for both.
 
-:func:`derive_wiring` turns explicit per-channel frequencies and phases into the
-structure the physics needs, so coherence is *derived* rather than assumed.
-Passing no frequencies leaves the positional model in force, unchanged.
+:func:`derive_wiring` turns explicit per-channel frequencies into the structure
+the physics needs, so coherence is *derived* rather than assumed.  Passing no
+frequencies leaves the positional model in force, unchanged.
+
+Polarity is set by electrode order alone.  Every source is taken to drive at
+the same phase, so reversing a pair's electrodes -- which negates its FEM field
+-- is exactly a 180-degree phase reversal, and it is the only one this module
+represents.  Two channels at one frequency therefore sum as ``E1 + E2`` or, with
+one pair reversed, ``E1 - E2``; offsets other than 0 or 180 degrees (an
+elliptically polarised carrier, or a non-zero envelope phase between beating
+carriers) are deliberately not expressible.
 
 The three consumers
 -------------------
 ``envelope_inputs``
-    Packs the groups into the ``(fields, psi, unpaired)`` triple
+    Packs the groups into the consecutive field list
     :func:`tit.calc.get_TI_vectors` already accepts.  A group with no beat
-    partner goes to ``unpaired``, where it raises the carrier power ``P`` and
-    contributes nothing to the coherent term ``Q`` -- so a montage with no
+    partner is paired with a zero field, so it raises the carrier power ``P``
+    and contributes nothing to the coherent term ``Q`` -- a montage with no
     difference frequency yields a modulation depth of exactly zero, which is the
     physically correct answer.
 ``coherent_amplitudes``
@@ -42,11 +50,11 @@ The three consumers
 
 Conventions
 -----------
-Frequencies are Hz, phases are degrees, and both are per *channel* (one
-electrode pair, one current source), positionally aligned with
-``Montage.electrode_pairs`` exactly as ``SimulationConfig.intensities`` is.
-Phase is the drive phase of the source: the quasi-static field phasor is the
-real FEM field times that phase, with no propagation delay anywhere in the head.
+Frequencies are Hz and per *channel* (one electrode pair, one current source),
+positionally aligned with ``Montage.electrode_pairs`` exactly as
+``SimulationConfig.intensities`` is.  Each channel's field is its real FEM field,
+signed by electrode order; the quasi-static field has no propagation delay
+anywhere in the head.
 
 See Also
 --------
@@ -83,10 +91,6 @@ logger = logging.getLogger(__name__)
 #: handled as one -- see `MIN_BEAT_HZ`.
 FREQ_IDENTICAL_TOL_HZ = 1e-6
 
-#: Phases within this many degrees of 0 or 180 count as in phase / anti-phase,
-#: so the coherent sum stays a real vector (see `CoherentGroup.signs`).
-PHASE_TOL_DEG = 1e-6
-
 #: A non-zero difference frequency below this is neither a beat nor coherence:
 #: the envelope period exceeds any plausible stimulation epoch, so neither model
 #: describes it.  Warned about, not rejected -- the user may know better.
@@ -105,7 +109,7 @@ INCOHERENCE_MARGIN = 10.0
 
 
 class WiringError(ValueError):
-    """A frequency/phase assignment the field math cannot represent."""
+    """A frequency assignment the field math cannot represent."""
 
 
 @dataclass(frozen=True)
@@ -116,33 +120,13 @@ class CoherentGroup:
     ----------
     frequency_hz : float
         The group's carrier frequency.
-    phase_deg : float
-        The phase shared by every member, in ``[0, 180)``.  Anti-phase members
-        carry their 180 degrees in :attr:`signs` instead, so that the group's
-        amplitude stays a real vector.
     members : tuple of int
-        Channel indices, ascending.
-    member_phases_deg : tuple of float
-        Each member's own drive phase, as given.  Redundant with
-        :attr:`phase_deg` and :attr:`signs` for a linearly polarised group, but
-        it is the only description left when :attr:`signs` is ``None``.
-    signs : tuple of float or None
-        ``+1`` or ``-1`` per member, or ``None`` when the members' phases are
-        not all 0 or 180 apart.  ``None`` means the group sums to an
-        elliptically polarised carrier: its exposure is still exact, but the
-        (P, Q) envelope formulation does not cover it.
+        Channel indices, ascending.  Their fields add as plain vectors; a
+        reversed pair contributes its negated field through electrode order.
     """
 
     frequency_hz: float
-    phase_deg: float
     members: tuple[int, ...]
-    member_phases_deg: tuple[float, ...]
-    signs: tuple[float, ...] | None
-
-    @property
-    def is_real(self) -> bool:
-        """Whether the coherent sum is a real vector (not elliptically polarised)."""
-        return self.signs is not None
 
 
 @dataclass(frozen=True)
@@ -161,11 +145,6 @@ class Wiring:
         carrier power without contributing to the envelope.
     delta_f_hz : float or None
         The one difference frequency, or ``None`` when nothing beats.
-    psi_rad : tuple of float
-        Envelope phase per entry of :attr:`beat_pairs`, in radians: the phase of
-        the high carrier minus that of the low one.  Feeds ``tit.calc``'s
-        ``psi``; envelopes offset in phase weaken the aggregate and cancel at
-        180 degrees (Botzanowski et al. 2025, Supplementary Fig. 1).
     n_channels : int
         How many channels this wiring was derived from.
     """
@@ -174,7 +153,6 @@ class Wiring:
     beat_pairs: tuple[tuple[int, int], ...]
     unpaired: tuple[int, ...]
     delta_f_hz: float | None
-    psi_rad: tuple[float, ...]
     n_channels: int
 
     @property
@@ -192,11 +170,6 @@ class Wiring:
         return any(len(g.members) > 1 for g in self.groups)
 
     @property
-    def is_real(self) -> bool:
-        """Whether every group sums to a real vector, so the envelope is defined."""
-        return all(g.is_real for g in self.groups)
-
-    @property
     def channel_beat_pairs(self) -> tuple[frozenset, ...]:
         """The beating carriers as sets of *channel* indices.
 
@@ -212,14 +185,11 @@ class Wiring:
     def is_positional(self) -> bool:
         """Whether this wiring is exactly what the positional model assumes.
 
-        True when every frequency carries one channel, consecutive channels
-        beat, and every envelope is phase-aligned -- i.e. the wiring adds no
-        information the positional reading did not already encode.  Callers
+        True when every frequency carries one channel and consecutive channels
+        beat -- i.e. the wiring adds no information the positional reading did not already encode.  Callers
         that rely on positional symmetry can keep doing so only in that case.
         """
         if any(len(g.members) != 1 for g in self.groups):
-            return False
-        if any(abs(p) > 1e-12 for p in self.psi_rad):
             return False
         if self.unpaired:
             return False
@@ -255,8 +225,8 @@ class Wiring:
         return " - ".join(parts)
 
 
-def _validate_drive(frequencies_hz, phases_deg):
-    """Coerce and check the raw per-channel drive arrays."""
+def _validate_frequencies(frequencies_hz):
+    """Coerce and check the raw per-channel frequency array."""
     freqs = [float(f) for f in frequencies_hz]
     if not freqs:
         raise WiringError("At least one channel frequency is required.")
@@ -265,51 +235,11 @@ def _validate_drive(frequencies_hz, phases_deg):
             raise WiringError(
                 f"Channel {i + 1} frequency must be finite and positive, got {f!r}."
             )
-    if phases_deg is None:
-        phases = [0.0] * len(freqs)
-    else:
-        phases = [float(p) for p in phases_deg]
-        if len(phases) != len(freqs):
-            raise WiringError(
-                f"Got {len(freqs)} frequencies but {len(phases)} phases; "
-                "one of each is required per electrode pair."
-            )
-        for i, p in enumerate(phases):
-            if not math.isfinite(p):
-                raise WiringError(f"Channel {i + 1} phase must be finite, got {p!r}.")
-    return freqs, phases
+    return freqs
 
 
-def _group_phase_and_signs(member_phases):
-    """Resolve a group's common phase and the +/-1 each member folds into.
-
-    The group's amplitude is written ``exp(i*theta) * sum_i s_i E_i`` so that the
-    summed part stays a real vector.  That is possible exactly when every
-    member's phase is 0 or 180 degrees from the others.
-
-    Returns
-    -------
-    theta_deg : float
-        The common phase, in ``[0, 180)``.
-    signs : tuple of float or None
-        ``None`` when the members are not all in phase or anti-phase, i.e. the
-        group is elliptically polarised.
-    """
-    theta = member_phases[0] % 180.0
-    signs = []
-    for p in member_phases:
-        delta = (p - theta) % 360.0
-        if delta <= PHASE_TOL_DEG or delta >= 360.0 - PHASE_TOL_DEG:
-            signs.append(1.0)
-        elif abs(delta - 180.0) <= PHASE_TOL_DEG:
-            signs.append(-1.0)
-        else:
-            return theta, None
-    return theta, tuple(signs)
-
-
-def _build_groups(freqs, phases):
-    """Cluster channels by frequency, ascending, and resolve each group's phase.
+def _build_groups(freqs):
+    """Cluster channels by frequency, ascending.
 
     Clustering compares against the *group's first* frequency rather than the
     previous one, so a run of near-identical values cannot chain into an
@@ -323,19 +253,10 @@ def _build_groups(freqs, phases):
         else:
             clusters.append([i])
 
-    groups = []
-    for members in clusters:
-        theta, signs = _group_phase_and_signs([phases[i] for i in members])
-        groups.append(
-            CoherentGroup(
-                frequency_hz=freqs[members[0]],
-                phase_deg=theta,
-                members=tuple(members),
-                member_phases_deg=tuple(phases[i] for i in members),
-                signs=signs,
-            )
-        )
-    return tuple(groups)
+    return tuple(
+        CoherentGroup(frequency_hz=freqs[members[0]], members=tuple(members))
+        for members in clusters
+    )
 
 
 def _match_beats(groups):
@@ -450,26 +371,21 @@ def _warn_about_marginal_separations(groups, beat_pairs, delta_f):
                 )
 
 
-def derive_wiring(
-    frequencies_hz: Sequence[float],
-    phases_deg: Sequence[float] | None = None,
-) -> Wiring:
-    """Derive the carrier structure from per-channel frequencies and phases.
+def derive_wiring(frequencies_hz: Sequence[float]) -> Wiring:
+    """Derive the carrier structure from per-channel frequencies.
 
     Parameters
     ----------
     frequencies_hz : sequence of float
         One carrier frequency per electrode pair, positionally aligned with
-        ``Montage.electrode_pairs``.  Must be finite and positive.
-    phases_deg : sequence of float, optional
-        One drive phase per electrode pair, in degrees.  Defaults to all zero.
-        A 180-degree phase is exactly a polarity reversal, so ``+/- -/+`` is
-        expressible either by swapping the pair's electrodes or by setting this.
+        ``Montage.electrode_pairs``.  Must be finite and positive.  Polarity
+        is not part of the drive: ``+/- -/+`` is expressed by swapping the
+        pair's electrodes, which negates its field.
 
     Returns
     -------
     Wiring
-        The coherent groups, which of them beat, and at what envelope phase.
+        The coherent groups and which of them beat.
 
     Raises
     ------
@@ -492,20 +408,15 @@ def derive_wiring(
     >>> derive_wiring([2000.0, 2000.0]).has_modulation
     False
     """
-    freqs, phases = _validate_drive(frequencies_hz, phases_deg)
-    groups = _build_groups(freqs, phases)
+    freqs = _validate_frequencies(frequencies_hz)
+    groups = _build_groups(freqs)
     beat_pairs, unpaired, delta_f = _match_beats(groups)
     _warn_about_marginal_separations(groups, beat_pairs, delta_f)
-    psi = tuple(
-        math.radians(groups[hi].phase_deg - groups[lo].phase_deg)
-        for lo, hi in beat_pairs
-    )
     return Wiring(
         groups=groups,
         beat_pairs=beat_pairs,
         unpaired=unpaired,
         delta_f_hz=delta_f,
-        psi_rad=psi,
         n_channels=len(freqs),
     )
 
@@ -518,19 +429,14 @@ class GroupAmplitude:
     ----------
     group : CoherentGroup
         The group this amplitude belongs to.
-    real : np.ndarray
-        ``(N, 3)`` in-phase amplitude.  For a linearly polarised group this is
-        the whole field, with the group's common phase factored out -- i.e. the
-        vector sum ``sum_i s_i E_i``, which is what the envelope math consumes.
-    imag : np.ndarray or None
-        ``(N, 3)`` quadrature amplitude, or ``None`` when the group is linearly
-        polarised.  When present the carrier traces an ellipse,
-        ``E(t) = real * cos(wt) - imag * sin(wt)``.
+    field : np.ndarray
+        ``(N, 3)`` carrier amplitude: the vector sum ``sum_i E_i`` of the
+        members' fields, each signed by its electrode order.  The carrier is
+        linearly polarised, ``E(t) = field * cos(wt)``.
     """
 
     group: CoherentGroup
-    real: np.ndarray
-    imag: np.ndarray | None
+    field: np.ndarray
 
     @property
     def mean_square(self) -> np.ndarray:
@@ -540,10 +446,7 @@ class GroupAmplitude:
         calibration, and nowhere in the field-domain quantity -- the convention
         :mod:`tit.fields` already uses.
         """
-        out = np.sum(self.real * self.real, axis=-1)
-        if self.imag is not None:
-            out = out + np.sum(self.imag * self.imag, axis=-1)
-        return out
+        return np.sum(self.field * self.field, axis=-1)
 
 
 def coherent_amplitudes(
@@ -591,32 +494,17 @@ def coherent_amplitudes(
 
     out = []
     for group in wiring.groups:
-        if group.is_real:
-            real = np.zeros(ref, dtype=np.float64)
-            for sign, idx in zip(group.signs, group.members):
-                if sign > 0:
-                    real += arrs[idx]
-                else:
-                    real -= arrs[idx]
-            out.append(GroupAmplitude(group=group, real=real, imag=None))
-        else:
-            # No common phase to factor out -- which is precisely why the
-            # group is elliptically polarised -- so each member keeps its own:
-            # A = sum_i E_i exp(i phi_i).
-            real = np.zeros(ref, dtype=np.float64)
-            imag = np.zeros(ref, dtype=np.float64)
-            for idx, phase in zip(group.members, group.member_phases_deg):
-                phi = math.radians(phase)
-                real += math.cos(phi) * arrs[idx]
-                imag += math.sin(phi) * arrs[idx]
-            out.append(GroupAmplitude(group=group, real=real, imag=imag))
+        total = np.zeros(ref, dtype=np.float64)
+        for idx in group.members:
+            total += arrs[idx]
+        out.append(GroupAmplitude(group=group, field=total))
     return out
 
 
 def envelope_inputs(
     fields: Sequence[ArrayLike], wiring: Wiring
-) -> tuple[list[NDArray[np.float64]], NDArray[np.float64]]:
-    """Pack channel fields into the ``(fields, psi)`` pair :mod:`tit.calc` consumes.
+) -> list[NDArray[np.float64]]:
+    """Pack channel fields into the carrier field list :mod:`tit.calc` consumes.
 
     Parameters
     ----------
@@ -627,19 +515,10 @@ def envelope_inputs(
 
     Returns
     -------
-    fields : list of np.ndarray
+    list of np.ndarray
         Two fields per carrier, consecutive, exactly as
-        :func:`tit.calc.get_TI_vectors` requires.
-    psi : np.ndarray, shape (K,)
-        One envelope phase in radians per carrier, aligned with ``fields``.
-
-    Raises
-    ------
-    WiringError
-        If any group is elliptically polarised.  The (P, Q) envelope is derived
-        for carriers with a real amplitude vector; an elliptical carrier is a
-        different quantity, and returning a number from a formula whose premise
-        does not hold would be worse than refusing.
+        :func:`tit.calc.get_TI_vectors` requires.  Every envelope is
+        phase-aligned, so no ``psi`` accompanies them.
 
     Notes
     -----
@@ -655,28 +534,13 @@ def envelope_inputs(
     correct answer and the reason the carrier metrics are the only meaningful
     output in that case.
     """
-    elliptical = [g.frequency_hz for g in wiring.groups if not g.is_real]
-    if elliptical:
-        named = ", ".join(f"{f:g} Hz" for f in elliptical)
-        raise WiringError(
-            f"The carriers at {named} sum to an elliptically polarised field, "
-            "because their channels' phases are neither equal nor 180 degrees "
-            "apart. The modulation envelope is defined for carriers with a real "
-            "amplitude vector, so it is not computed here. Exposure metrics "
-            "(hf_peak, hf_sar) remain exact for this montage."
-        )
-
     amps = coherent_amplitudes(fields, wiring)
     packed: list[NDArray[np.float64]] = []
-    psi: list[float] = []
     for lo, hi in wiring.beat_pairs:
-        packed.append(amps[lo].real)
-        packed.append(amps[hi].real)
-    psi.extend(wiring.psi_rad)
-    zero = np.zeros_like(amps[0].real) if amps else None
+        packed.append(amps[lo].field)
+        packed.append(amps[hi].field)
+    zero = np.zeros_like(amps[0].field) if amps else None
     for idx in wiring.unpaired:
-        packed.append(amps[idx].real)
+        packed.append(amps[idx].field)
         packed.append(zero)
-        # The zero-partnered product vanishes whatever phase is declared.
-        psi.append(0.0)
-    return packed, np.asarray(psi, dtype=np.float64)
+    return packed

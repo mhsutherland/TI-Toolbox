@@ -157,7 +157,7 @@ class TISimulation(BaseSimulation):
         if wiring is not None:
             self.logger.info("Carrier wiring: %s", wiring.describe())
             warn_if_carrier_metrics_unrequested(self.config, wiring, self.logger)
-            packed, psi = envelope_inputs(e_fields, wiring)
+            packed = envelope_inputs(e_fields, wiring)
 
         mout = deepcopy(m1)
         mout.elmdata = []
@@ -167,14 +167,12 @@ class TISimulation(BaseSimulation):
             else:
                 # The sign-agnostic closed form cannot represent a shared
                 # carrier, so the wired path goes through the (P, Q) envelope.
-                TImax = np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)
+                TImax = np.linalg.norm(get_TI_vectors(packed), axis=1)
             mout.add_element_field(TImax, const.FIELD_TI_MAX)
         if const.FIELD_TI_AVG in selected:
             # TI_avg: orientation-averaged companion to TI_max (tit.calc, not
             # SimNIBS's TI.get_maxTI -- there is no direction-averaged form there).
-            TIavg = (
-                get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed, psi=psi)
-            )
+            TIavg = get_TI_avg(e_fields) if wiring is None else get_TI_avg(packed)
             mout.add_element_field(TIavg, const.FIELD_TI_AVG)
         if const.FIELD_HF_PEAK in selected:
             # Carrier-exposure safety map (Cassarà 2025): peak carrier field.
@@ -279,8 +277,8 @@ class TISimulation(BaseSimulation):
         else:
             # Same quantity through the K-carrier form, which is the only one
             # that can represent a shared or non-beating carrier.
-            packed, psi = envelope_inputs([ef1_v, ef2_v], wiring)
-            TI_normal = get_TI_dir(packed, normals, psi=psi)
+            packed = envelope_inputs([ef1_v, ef2_v], wiring)
+            TI_normal = get_TI_dir(packed, normals)
 
         mout = deepcopy(cm1)
         mout.nodedata = []

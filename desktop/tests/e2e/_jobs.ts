@@ -108,7 +108,8 @@ export async function jobPairsText(row: Locator): Promise<string> {
 
 /** The row's current (mA) inputs — the count follows its polarity. */
 export function jobCurrents(row: Locator): Locator {
-  return jobDetail(row).getByRole("spinbutton");
+  // The current inputs only: each channel line also carries a carrier-frequency spinbutton.
+  return jobDetail(row).locator('input[aria-label$="current (mA)"]');
 }
 
 /** Empties the table, so a test's job counts are exact rather than additive. */

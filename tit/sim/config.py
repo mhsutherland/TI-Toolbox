@@ -423,13 +423,13 @@ class SimulationConfig:
     aniso_maxcond: float = 2.0
     output_fields: list[str] = field(default_factory=lambda: [const.FIELD_TI_MAX])
     tissue_conductivities: dict[int, float] | None = None
-    # Carrier drive, one entry per electrode pair, aligned with `intensities`.
-    # Both default to None, which keeps the positional reading: every pair is
-    # assumed to sit at its own distinct frequency and consecutive pairs beat.
+    # Carrier frequency, one entry per electrode pair, aligned with
+    # `intensities`. None keeps the positional reading: every pair is assumed
+    # to sit at its own distinct frequency and consecutive pairs beat.
     # Supplying frequencies replaces that assumption with a derived wiring
     # (`tit.wiring`), which is the only way to express two pairs on one carrier.
+    # Polarity is electrode order: reversing a pair is a 180-degree phase.
     frequencies_hz: list[float] | None = None
-    phases_deg: list[float] | None = None
 
     def __post_init__(self):
         if self.conductivity not in _VALID_CONDUCTIVITIES:
@@ -495,7 +495,6 @@ class SimulationConfig:
                     f"{non_positive}"
                 )
 
-
     def simulation_mode_for(self, montage: Montage) -> SimulationMode:
         """Which simulation pipeline runs *montage* under this config.
 
@@ -539,7 +538,7 @@ class SimulationConfig:
         )
 
     def _validate_carrier_drive(self):
-        """Check `frequencies_hz` / `phases_deg` against the montages.
+        """Check `frequencies_hz` against the montages.
 
         Arity only: whether the *structure* those frequencies imply is one the
         field math can represent is `tit.wiring.derive_wiring`'s judgement, and
@@ -548,31 +547,18 @@ class SimulationConfig:
         Raises
         ------
         ValueError
-            If phases are given without frequencies, or either list does not
-            carry one entry per electrode pair of every montage.
+            If the list does not carry one entry per electrode pair of every
+            montage.
         """
         if self.frequencies_hz is None:
-            if self.phases_deg is not None:
-                raise ValueError(
-                    "phases_deg was given without frequencies_hz. A phase is "
-                    "only meaningful relative to a carrier frequency; supply "
-                    "frequencies_hz as well, or neither."
-                )
             return
-
-        for name, values in (
-            ("frequencies_hz", self.frequencies_hz),
-            ("phases_deg", self.phases_deg),
-        ):
-            if values is None:
-                continue
-            for montage in self.montages:
-                if len(values) != montage.num_pairs:
-                    raise ValueError(
-                        f"Montage {montage.name!r} has {montage.num_pairs} "
-                        f"electrode pairs but {len(values)} {name} were given; "
-                        "one per pair is required."
-                    )
+        for montage in self.montages:
+            if len(self.frequencies_hz) != montage.num_pairs:
+                raise ValueError(
+                    f"Montage {montage.name!r} has {montage.num_pairs} "
+                    f"electrode pairs but {len(self.frequencies_hz)} "
+                    "frequencies_hz were given; one per pair is required."
+                )
 
     @property
     def carrier_wiring(self):
@@ -596,7 +582,7 @@ class SimulationConfig:
             return None
         from tit.wiring import derive_wiring
 
-        return derive_wiring(self.frequencies_hz, self.phases_deg)
+        return derive_wiring(self.frequencies_hz)
 
 
 def parse_intensities(s: str) -> list[float]:

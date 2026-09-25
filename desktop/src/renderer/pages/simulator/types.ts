@@ -42,16 +42,11 @@ export interface SelectedRow {
    * so a row that never touches it produces exactly the results it always did.
    *
    * Setting it is the only way to say that two pairs share a carrier — which is the only case
-   * where the electrode order within a montage changes the field (`_shared/carriers`).
+   * where the electrode order within a montage changes the field (`_shared/carriers`). Polarity
+   * is that order and nothing else: there is no phase input, and reversing a pair's electrodes is
+   * exactly a 180° phase reversal.
    */
   frequencies?: string;
-  /**
-   * Per-channel drive phase (degrees), comma-separated, one per electrode pair.
-   *
-   * Only meaningful alongside `frequencies`; blank means every channel at 0°. A 180° phase is
-   * exactly a polarity reversal, so `+/- -/+` can be written either way round.
-   */
-  phases?: string;
   /** Transient: never submit the previous placement while cap assignment is in flight. */
   mappingPending?: boolean;
   /**

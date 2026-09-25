@@ -858,3 +858,33 @@ class TestROICrud:
 
         coords = ExSearchEngine.get_roi_coordinates("001", "empty")
         assert coords is None
+
+
+# ---------------------------------------------------------------------------
+# ExSearchEngine with a declared carrier wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestComputeTiFieldsWithWiring:
+    """The wired scoring path runs end to end (it crashed with frequencies set)."""
+
+    def test_beating_wiring_scores_the_real_envelope(self, monkeypatch):
+        import tit.opt.ex.engine as engine_mod
+        from tit.calc import get_TI_vectors
+        from tit.wiring import derive_wiring
+
+        engine = _make_engine()
+        _setup_engine_fields(engine)
+        engine.wiring = derive_wiring([2000.0, 2010.0])
+        unit1 = np.tile([1.0, 0.0, 0.0], (5, 1))
+        unit2 = np.tile([0.8, 0.0, 0.0], (5, 1))
+        monkeypatch.setattr(
+            engine_mod.TI, "get_field", MagicMock(side_effect=[unit1, unit2])
+        )
+        monkeypatch.setattr(engine_mod, "get_TI_vectors", get_TI_vectors)
+
+        (result,) = engine.compute_ti_fields("E1", "E2", "E3", "E4", [(1.0, 1.0)])
+
+        # Two colinear carriers beat with depth 2 * min(|E1|, |E2|).
+        assert result["TestROI_TImax_ROI"] == pytest.approx(2 * 0.8e-3)

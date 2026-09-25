@@ -142,10 +142,9 @@
   white-space: normal;
 }
 
-/* `[placement] [pairs] …… [currents] mA` on one line where it fits, and the currents wrapping to a
-   second line — still right-aligned — where it does not (an mTI job's four inputs plus its four
-   pairs are wider than the two columns this cell spans at 1280). Nothing truncates, nothing
-   overflows the cell. */
+/* A job's second line. With a montage chosen it holds the channel list, one channel per line
+   (see `.job-line2[data-cell="pairs"]` below); otherwise the one muted empty-state line. Nothing
+   truncates, nothing overflows the cell. */
 .job-line2 {
   display: flex;
   flex-wrap: wrap;
@@ -183,8 +182,8 @@
   max-width: none;
 }
 
-/* Carrier frequency and phase sit inside the channel group, beside the current, so a channel's
-   whole drive reads as one thing. That makes the group wide enough to need wrapping. */
+/* Carrier frequency sits inside the channel group, beside the current, so a channel's whole drive
+   reads as one thing. */
 .job-channel .number-input + .montage-unit + .number-input {
   margin-left: 6px;
 }
@@ -203,8 +202,12 @@
   font-weight: 500;
 }
 
-.job-line2[data-channels="2"] { flex-wrap: nowrap; overflow-x: auto; }
-.job-line2[data-channels="2"] .job-channel { flex-shrink: 0; }
+/* One channel per line: each montage's pair, current and frequency on a row of its own, and the
+   derived wiring on the line after them. */
+.job-line2[data-cell="pairs"] {
+  flex-direction: column;
+  align-items: flex-start;
+}
 
 /* The per-job settings dialog: the page's three sections, one under the other. */
 .job-settings-form {

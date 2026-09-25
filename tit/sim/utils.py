@@ -711,7 +711,6 @@ def create_simulation_config_file(
         "conductivity": config.conductivity,
         "electrode_pairs": montage.electrode_pairs,
         "frequencies_hz": config.frequencies_hz,
-        "phases_deg": config.phases_deg,
         "carrier_wiring": (
             config.carrier_wiring.describe()
             if config.frequencies_hz is not None

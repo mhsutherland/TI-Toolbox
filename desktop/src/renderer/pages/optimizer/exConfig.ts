@@ -68,8 +68,8 @@ export const MEX_CARRIER_HELP =
   "Setting them lets you express wirings the positional model cannot — notably two pairs sharing " +
   "each carrier (2000, 2000, 2010, 2010), where the two fields on one frequency add as vectors " +
   "and the electrode order within those pairs starts to matter.\n\n" +
-  "Phase is the drive phase of each source; 180 degrees is exactly a polarity reversal. Unlike " +
-  "Ex, this changes the result: with two carriers the envelope phase enters the modulation depth.\n\n" +
+  "Polarity is the electrode order you set in the buckets (+ and -); there is no separate phase. " +
+  "Reversing a pair is exactly a 180-degree phase reversal.\n\n" +
   "Each pair runs at its own current. The search ranks electrodes at the currents you set and " +
   "never varies them, so unbalanced pairs can rank montages differently from equal ones.";
 
@@ -94,12 +94,10 @@ export interface MExFormState {
    * field meant, so an untouched form ranks candidates exactly as it always did.
    *
    * Setting them is the only way to express a wiring the positional model cannot, notably two
-   * pairs sharing each carrier (`[2000, 2000, 2010, 2010]`). Unlike Ex, this genuinely changes the
-   * objective: mEx is two carriers, where the envelope phase enters `Q` (`tit/calc.py`).
+   * pairs sharing each carrier (`[2000, 2000, 2010, 2010]`), where the fields on one frequency add
+   * as vectors and the electrode order (the only polarity control) changes the objective.
    */
   frequencies: (number | null)[];
-  /** Per-channel drive phase (degrees); `null` means 0. 180 is a polarity reversal. */
-  phases: (number | null)[];
   /**
    * Per-pair current (mA), one per bipolar pair — the only current control mEx has.
    *
@@ -127,7 +125,6 @@ export function defaultMExFormState(): MExFormState {
     symmetricBucket: false,
     symmetryPairing: "within_pairs",
     frequencies: [null, null, null, null],
-    phases: [null, null, null, null],
     currents: [2.0, 2.0, 2.0, 2.0],
   };
 }
@@ -135,24 +132,16 @@ export function defaultMExFormState(): MExFormState {
 export const MEX_CHANNELS = 4;
 
 /**
- * The drive to send for this form, or nulls.
+ * The carrier frequencies to send for this form, or null.
  *
  * A *partial* drive is treated as unset, the same rule the Simulator applies: a frequency on some
- * channels and not others has no meaning the server could act on. Phases are zero-filled rather
- * than sent alone, because the server rejects `phases_deg` without `frequencies_hz`.
+ * channels and not others has no meaning the server could act on.
  */
-export function mexCarrierDrive(form: MExFormState): {
-  frequencies_hz: number[] | null;
-  phases_deg: number[] | null;
-} {
+export function mexCarrierDrive(form: MExFormState): { frequencies_hz: number[] | null } {
   const complete =
     form.frequencies.length === MEX_CHANNELS &&
     form.frequencies.every((f): f is number => f != null && Number.isFinite(f) && f > 0);
-  if (!complete) return { frequencies_hz: null, phases_deg: null };
-  return {
-    frequencies_hz: form.frequencies as number[],
-    phases_deg: Array.from({ length: MEX_CHANNELS }, (_, i) => form.phases[i] ?? 0),
-  };
+  return { frequencies_hz: complete ? (form.frequencies as number[]) : null };
 }
 
 /** The current each pair runs at (mA), in pair order. */
@@ -268,7 +257,6 @@ export function buildExConfig(
     // single-carrier envelope is phase-invariant: no value here could reorder
     // the ranking. Null keeps the positional reading.
     frequencies_hz: null,
-    phases_deg: null,
     // Ex-search symmetric buckets (added on main in v2.5.0) have no control on
     // the Optimizer page yet; these are the server-side defaults. See
     // docs/dev/RELEASE.md §B.

@@ -112,7 +112,7 @@ data["nets"][eeg_net]["uni_polar_montages"][name]   = [[e1,e2],[e3,e4]]
 
 **By default the assignment is positional**: each two consecutive electrodes in the montage compose a channel, and each two consecutive channels compose a carrier. For an 8-electrode montage that means channels A & B share the first carrier and channels C & D the second. Leave the frequency fields blank and this is exactly what you get — the behaviour of every version before 3.1, unchanged.
 
-Positional pairing is an *assumption*, though: it takes every pair to be driven at its own distinct frequency. If your stimulator does something else, the assumption is wrong in a way the output does not show. Fill in the per-channel **Frequency** (Hz) and **Phase** (°) fields and the toolbox derives the wiring instead of assuming it.
+Positional pairing is an *assumption*, though: it takes every pair to be driven at its own distinct frequency. If your stimulator does something else, the assumption is wrong in a way the output does not show. Fill in the per-channel **Frequency** (Hz) field and the toolbox derives the wiring instead of assuming it. Each channel's pair, current and frequency sit on a line of their own in the job row.
 
 ##### Why the frequency changes the answer
 
@@ -127,12 +127,9 @@ This matters even when you are not trying to produce an envelope. There is evide
 
 ##### What the toolbox does with the frequencies
 
-Channels sharing a frequency are summed **as vectors first** (a 180° phase is exactly a polarity reversal, so you can write a reversal either way round). The remaining distinct frequencies are then paired by their difference frequency; anything with no partner contributes carrier power but no envelope. The job row shows the result in words — for example `2 channels · 2 frequencies · 1 carrier pair · Δf = 10 Hz`, or `2 channels · 1 frequency · no modulation (TI_max = 0) · coherent sum (electrode order matters)`.
+Channels sharing a frequency are summed **as vectors first**. Polarity is set by the **electrode order** alone — the first electrode of a pair is its `+` — and there is no separate phase input: reversing a pair's electrodes negates its field, which is exactly a 180° phase reversal. Phase offsets other than 0° or 180° cannot be expressed. The remaining distinct frequencies are then paired by their difference frequency; anything with no partner contributes carrier power but no envelope. The job row shows the result in words — for example `2 channels · 2 frequencies · 1 carrier pair · Δf = 10 Hz`, or `2 channels · 1 frequency · no modulation (TI_max = 0) · coherent sum (electrode order matters)`.
 
-Two assignments are **refused rather than approximated**, because the envelope is defined for a single difference frequency and for carriers with a real amplitude vector:
-
-- frequencies implying more than one difference frequency (e.g. 2000 / 2010 / 2020 Hz beats at both 10 and 20 Hz); and
-- channels on one frequency whose phases are neither equal nor 180° apart, which sum to an elliptically polarised carrier. Exposure metrics stay exact for that case; only the envelope is refused.
+Frequencies implying more than one difference frequency (e.g. 2000 / 2010 / 2020 Hz beats at both 10 and 20 Hz) are **refused rather than approximated**, because the envelope is defined for a single difference frequency.
 
 ##### What frequency does *not* change
 

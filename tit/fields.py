@@ -14,7 +14,7 @@ quantities, and by worst-case relative phase for the peak.
 
 Which fields share a frequency is a property of the montage's drive, and both
 functions accept it as an optional ``wiring`` (:mod:`tit.wiring`, built from the
-per-channel frequencies and phases).  Given one, the fields at each frequency
+per-channel frequencies).  Given one, the fields at each frequency
 are summed **as vectors first**, and only the resulting per-frequency
 amplitudes combine incoherently — the coherent pre-sum the governing rule calls
 for.
@@ -27,6 +27,8 @@ always have.  That path is untouched, so no existing result moves.
 The distinction is not academic.  Two pairs driven at one frequency add or
 cancel according to their polarity, so ``+/- +/-`` and ``+/- -/+`` are
 physically different montages; without a wiring both return the same number.
+Polarity comes from electrode order alone: a reversed pair's field is negated
+before the pre-sum, which is exactly a 180-degree phase reversal.
 
 ``hf_peak(*fields, wiring=None)`` — peak carrier field.  Distinct carriers
 run at mutually incommensurate frequencies, so every relative phase
@@ -35,7 +37,7 @@ over sign choices, ``max_s |sum_c s_c * E_c|`` over *carriers* ``c``.  At two
 carriers this is exactly ``max(|E1+E2|, |E1-E2|)`` (Cassarà Part I, Eq. 3,
 p. 11: the worst case is "in-phase, spatially aligned fields").  With a wiring
 the sign choice runs over the coherently summed frequencies rather than the raw
-fields: within one frequency the relative phase is *known*, not worst-cased.
+fields: within one frequency the relative polarity is *known*, not worst-cased.
 
 ``hf_sar(*fields, wiring=None)`` — heating driver, proportional to SAR.
 Distinct carriers are incoherent, so power adds rather than amplitude:
@@ -199,12 +201,8 @@ def _grouped_amplitudes(fields, wiring):
 
     Returns
     -------
-    real : np.ndarray, shape ``(G, M, 3)``
-        In-phase amplitude per frequency group.
-    imag : np.ndarray or None
-        Quadrature amplitude per group, or ``None`` when every group is
-        linearly polarised (the usual case, including every polarity-only
-        montage).
+    stack : np.ndarray, shape ``(G, M, 3)``
+        Summed carrier amplitude per frequency group.
     shape : tuple
         The original field shape, for reshaping the result back.
     """
@@ -212,52 +210,8 @@ def _grouped_amplitudes(fields, wiring):
 
     amps = coherent_amplitudes(fields, wiring)
     shape = np.asarray(fields[0], dtype=float).shape
-    real = np.stack([a.real.reshape(-1, 3) for a in amps], axis=0)
-    if all(a.imag is None for a in amps):
-        return real, None, shape
-    imag = np.stack(
-        [
-            (a.imag if a.imag is not None else np.zeros_like(a.real)).reshape(-1, 3)
-            for a in amps
-        ],
-        axis=0,
-    )
-    return real, imag, shape
-
-
-def _hf_peak_support_sweep(real: np.ndarray, imag: np.ndarray) -> np.ndarray:
-    """Worst-case peak when some carrier is elliptically polarised.
-
-    An elliptically polarised carrier sweeps an ellipse rather than a line, so
-    there is no sign to enumerate.  The reachable instantaneous sums form the
-    Minkowski sum of the carriers' ellipses, whose maximum magnitude is the
-    largest of its support values::
-
-        max_n sum_g sqrt((P_g . n)^2 + (Q_g . n)^2)
-
-    With every ``Q_g`` zero this reduces to ``max_n sum_g |E_g . n|``, the same
-    worst case the sign enumeration finds exactly -- which is why the exact
-    path is preferred whenever it applies.  Sampled directions make this a
-    lower bound; :func:`hf_peak_is_exact` reports that.
-    """
-    n, m, _ = real.shape
-    directions = _fibonacci_directions(_SWEEP_N_DIRECTIONS)
-    out = np.empty(m, dtype=float)
-    for lo in range(0, m, _CHUNK_SIZE):
-        hi = min(lo + _CHUNK_SIZE, m)
-        c = hi - lo
-        best = np.full(c, -np.inf, dtype=float)
-        for d0 in range(0, _SWEEP_N_DIRECTIONS, _SWEEP_DIR_BATCH):
-            d1 = min(d0 + _SWEEP_DIR_BATCH, _SWEEP_N_DIRECTIONS)
-            dirs_batch = directions[d0:d1]
-            support = np.zeros((c, d1 - d0), dtype=float)
-            for i in range(n):
-                proj_p = real[i, lo:hi, :] @ dirs_batch.T
-                proj_q = imag[i, lo:hi, :] @ dirs_batch.T
-                support += np.sqrt(proj_p * proj_p + proj_q * proj_q)
-            np.maximum(best, support.max(axis=1), out=best)
-        out[lo:hi] = best
-    return out
+    stack = np.stack([a.field.reshape(-1, 3) for a in amps], axis=0)
+    return stack, shape
 
 
 def hf_peak_is_exact(n_fields: int | None = None, wiring=None) -> bool:
@@ -271,9 +225,7 @@ def hf_peak_is_exact(n_fields: int | None = None, wiring=None) -> bool:
     display ``hf_peak`` should carry this flag alongside the value.
 
     Without a wiring one field is one carrier, so *n_fields* is the carrier
-    count.  With a ``wiring`` the carriers are its frequency *groups*, and an
-    elliptically polarised group forces the direction sweep whatever the count,
-    so the answer is ``False``.
+    count.  With a ``wiring`` the carriers are its frequency *groups*.
 
     Parameters
     ----------
@@ -283,8 +235,6 @@ def hf_peak_is_exact(n_fields: int | None = None, wiring=None) -> bool:
         Takes precedence over *n_fields*.
     """
     if wiring is not None:
-        if not wiring.is_real:
-            return False
         return len(wiring.groups) <= EXACT_SIGN_ENUM_MAX_FIELDS
     if n_fields is None:
         raise ValueError("hf_peak_is_exact needs either n_fields or a wiring.")
@@ -334,13 +284,11 @@ def hf_peak(*fields, wiring=None) -> np.ndarray:
         return flat.reshape(shape[:-1])
 
     _stack_fields(fields)  # same arity and shape contract as the plain path
-    real, imag, shape = _grouped_amplitudes(fields, wiring)
-    if imag is not None:
-        flat = _hf_peak_support_sweep(real, imag)
-    elif real.shape[0] <= EXACT_SIGN_ENUM_MAX_FIELDS:
-        flat = _hf_peak_exact(real)
+    stack, shape = _grouped_amplitudes(fields, wiring)
+    if stack.shape[0] <= EXACT_SIGN_ENUM_MAX_FIELDS:
+        flat = _hf_peak_exact(stack)
     else:
-        flat = _hf_peak_sweep(real)
+        flat = _hf_peak_sweep(stack)
     return flat.reshape(shape[:-1])
 
 
@@ -384,8 +332,6 @@ def hf_sar(*fields, wiring=None) -> np.ndarray:
         return flat.reshape(shape[:-1])
 
     _stack_fields(fields)  # same arity and shape contract as the plain path
-    real, imag, shape = _grouped_amplitudes(fields, wiring)
-    flat = np.sum(np.sum(real * real, axis=-1), axis=0)
-    if imag is not None:
-        flat = flat + np.sum(np.sum(imag * imag, axis=-1), axis=0)
+    stack, shape = _grouped_amplitudes(fields, wiring)
+    flat = np.sum(np.sum(stack * stack, axis=-1), axis=0)
     return flat.reshape(shape[:-1])

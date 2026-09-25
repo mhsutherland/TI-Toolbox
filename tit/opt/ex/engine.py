@@ -279,10 +279,8 @@ class ExSearchEngine:
             else:
                 # The sign-agnostic closed form cannot represent a shared
                 # carrier; the wired path goes through the (P, Q) envelope.
-                paired, psi, unpaired = envelope_inputs([ef1, ef2], self.wiring)
-                ti_max = np.linalg.norm(
-                    get_TI_vectors(paired, psi=psi, unpaired=unpaired), axis=1
-                )
+                packed = envelope_inputs([ef1, ef2], self.wiring)
+                ti_max = np.linalg.norm(get_TI_vectors(packed), axis=1)
             data = self._roi_metrics(ti_max[roi_pos], ti_max[gm_pos])
             data["current_ch1_mA"] = current_ch1_mA
             data["current_ch2_mA"] = current_ch2_mA

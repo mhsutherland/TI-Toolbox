@@ -11590,21 +11590,6 @@
             ],
             "default": null,
             "title": "Frequencies Hz"
-          },
-          "phases_deg": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Phases Deg"
           }
         },
         "required": [
@@ -12218,21 +12203,6 @@
             ],
             "default": null,
             "title": "Frequencies Hz"
-          },
-          "phases_deg": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Phases Deg"
           }
         },
         "required": [
@@ -12380,21 +12350,6 @@
             ],
             "default": null,
             "title": "Frequencies Hz"
-          },
-          "phases_deg": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Phases Deg"
           },
           "currents_mA": {
             "anyOf": [

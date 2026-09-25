@@ -305,9 +305,11 @@ function ColumnHandle({ label, width, onResize }: { label: string; width: number
 }
 
 /**
- * Line 2's channel list: one group per channel — `[colour dot] E034–E020 [1] mA` — so the current
- * sits **next to the pair it drives** rather than in a separate right-aligned block where nobody
- * could tell which value belonged to which channel (maintainer, 2026-09-06).
+ * Line 2's channel list: one line per channel — `[colour dot] E034–E020 [1] mA [2000] Hz` — so the
+ * current and frequency sit **next to the pair they drive** rather than in a separate right-aligned
+ * block where nobody could tell which value belonged to which channel (maintainer, 2026-09-06).
+ * Channels stack one under another rather than sharing a line, so each montage's drive reads and
+ * edits on its own (2026-09-24). The derived carrier wiring follows on its own line.
  *
  * The dot is the scene's own channel colour (Okabe-Ito, `channelCss`), which is what the 3-D pane's
  * legend and its electrode markers use: "channel 2 is orange" means one thing in this table, in the
@@ -320,7 +322,7 @@ function ChannelList({
 }: {
   row: SelectedRow;
   onChange: (currents: string) => void;
-  onDriveChange: (patch: { frequencies?: string; phases?: string }) => void;
+  onDriveChange: (patch: { frequencies?: string }) => void;
 }) {
   const count = rowCurrentsCount(row);
   if (count === 0 || !row.name) return null;
@@ -330,7 +332,6 @@ function ChannelList({
   // sensible default carrier frequency to substitute, and guessing one would silently change the
   // physics. Until every channel has one the row runs on the positional reading.
   const freqCells = driveCells(row.frequencies, count);
-  const phaseCells = driveCells(row.phases, count);
   const write = (cells: (number | undefined)[], i: number, next: number | undefined) =>
     cells.map((old, idx) => (idx === i ? next : old)).map((v) => (v == null ? "" : String(v))).join(",");
   return (
@@ -358,14 +359,6 @@ function ChannelList({
             aria-label={`${row.name || "row"} channel ${i + 1} carrier frequency (Hz)`}
           />
           <span className="montage-unit">Hz</span>
-          <NumberInput
-            value={phaseCells[i]}
-            onValueChange={(next) => onDriveChange({ phases: write(phaseCells, i, next) })}
-            step={90}
-            placeholder="0"
-            aria-label={`${row.name || "row"} channel ${i + 1} phase (degrees)`}
-          />
-          <span className="montage-unit">°</span>
         </span>
       ))}
       <CarrierWiringChip row={row} count={count} />

@@ -6702,11 +6702,6 @@ export interface components {
              * @default null
              */
             frequencies_hz: number[] | null;
-            /**
-             * Phases Deg
-             * @default null
-             */
-            phases_deg: number[] | null;
         };
         /**
          * Montage
@@ -7349,11 +7344,6 @@ export interface components {
              * @default null
              */
             frequencies_hz: number[] | null;
-            /**
-             * Phases Deg
-             * @default null
-             */
-            phases_deg: number[] | null;
         };
         /**
          * MExConfig
@@ -7520,11 +7510,6 @@ export interface components {
              * @default null
              */
             frequencies_hz: number[] | null;
-            /**
-             * Phases Deg
-             * @default null
-             */
-            phases_deg: number[] | null;
             /**
              * Currents Ma
              * @default null

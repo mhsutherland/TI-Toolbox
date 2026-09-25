@@ -81,7 +81,7 @@ $$
 \mathrm{MD} = \sqrt{2} \left( \sqrt{P + Q} - \sqrt{P - Q} \right)
 $$
 
-$$\psi_k$$ is a per-carrier envelope phase offset (radians), `None` by default (all carriers phase-aligned, $$\psi_k = 0$$, the standard case). When a run declares [per-channel phases]({{ site.baseurl }}/wiki/simulator/#channels-and-carriers), $$\psi_k$$ is the phase of carrier $$k$$'s high channel minus that of its low one. $$P - Q$$ and $$P + Q$$ are clamped to $$\ge 0$$ before the square roots to absorb floating-point round-off. This is implemented in `tit/calc.py`, whose public API is exactly three functions:
+$$\psi_k$$ is a per-carrier envelope phase offset (radians), `None` by default (all carriers phase-aligned, $$\psi_k = 0$$, the standard case). The simulator and optimizers always use the default: polarity is set by electrode order, and no run declares a phase. $$P - Q$$ and $$P + Q$$ are clamped to $$\ge 0$$ before the square roots to absorb floating-point round-off. This is implemented in `tit/calc.py`, whose public API is exactly three functions:
 
 | Function                                    | Purpose                                                                                 |
 | ------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -153,9 +153,7 @@ $$
 \mathrm{hf\_peak} = \max_{\mathbf{s}} \left\lVert \sum_g s_g \mathbf{A}_g \right\rVert
 $$
 
-with $$s_i = \pm 1$$ carrying a 180° phase, i.e. a polarity reversal. The consequence is that electrode order stops being free: for two equal aligned fields on one frequency, `hf_sar` is $$\lVert 2\mathbf{E} \rVert^2$$ one way round and $$0$$ the other, where the incoherent sum reports $$2\lVert \mathbf{E} \rVert^2$$ regardless. The sign maximisation runs over *frequencies*, not raw fields — within one frequency the relative phase is known, not worst-cased — so `EXACT_SIGN_ENUM_MAX_FIELDS` counts frequency groups, and `hf_peak_is_exact` takes the wiring.
-
-If channels on one frequency have phases that are neither equal nor 180° apart, they sum to an elliptically polarised carrier. Exposure stays exact there — $$\lVert \mathbf{A}_g \rVert^2$$ over both quadratures, and a direction sweep for the peak, which `hf_peak_is_exact` reports as a lower bound — while the modulation envelope is refused, because the $$(P, Q)$$ form is derived for carriers with a real amplitude vector.
+with $$s_i = \pm 1$$ the channel's polarity, set by its electrode order (a reversed pair's field is negated, which is a 180° phase). The consequence is that electrode order stops being free: for two equal aligned fields on one frequency, `hf_sar` is $$\lVert 2\mathbf{E} \rVert^2$$ one way round and $$0$$ the other, where the incoherent sum reports $$2\lVert \mathbf{E} \rVert^2$$ regardless. The sign maximisation runs over *frequencies*, not raw fields — within one frequency the relative polarity is known, not worst-cased — so `EXACT_SIGN_ENUM_MAX_FIELDS` counts frequency groups, and `hf_peak_is_exact` takes the wiring.
 
 Both metrics are **opt-in**: neither is in `SimulationConfig.output_fields`'s default (`["TI_max"]`), so a run must explicitly request `hf_peak`/`hf_sar` to get them written.
 

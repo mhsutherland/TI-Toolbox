@@ -78,7 +78,9 @@ test("candidate table and trade-off plot select one exact subject montage for a 
   const channels = table.locator(".job-channel");
   const firstChannel = await channels.nth(0).boundingBox();
   const secondChannel = await channels.nth(1).boundingBox();
-  expect(Math.abs(firstChannel!.y - secondChannel!.y)).toBeLessThan(2);
+  // One channel per line (2026-09-24): the second sits below the first, left-aligned with it.
+  expect(secondChannel!.y).toBeGreaterThanOrEqual(firstChannel!.y + firstChannel!.height - 1);
+  expect(Math.abs(firstChannel!.x - secondChannel!.x)).toBeLessThan(2);
   const labels = ["E0-0", "E0-1", "E0-2", "E0-3"];
   const cap = JSON.parse(readFileSync(join(__dirname, "../fixtures/scene/electrodes.json"), "utf8"));
   await page.route("**/api/scene/electrodes?**", (route) => route.fulfill({ json: { ...cap, electrodes: cap.electrodes.map((electrode: { id: string; world: number[] }) => ({ name: electrode.id, world: electrode.world })) } }));

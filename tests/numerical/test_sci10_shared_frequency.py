@@ -21,7 +21,9 @@ Two consequences follow, and both are measured here rather than argued:
    zero field, which raises ``P`` and leaves ``Q`` at zero.
 2. **Electrode order stops being free.**  ``+/- +/-`` and ``+/- -/+`` are the
    same montage to every frequency-blind metric, and physically different: one
-   sums, the other cancels.
+   sums, the other cancels.  Electrode order is the only polarity control --
+   reversing a pair negates its FEM field, which is a 180-degree phase -- so the
+   reversed montage is built here by negating that channel's field.
 
 Everything is checked against the **independent time-domain reference** already
 used by SCI-07 -- ``E(t)`` summed on a fine grid over a full common period, from
@@ -85,8 +87,8 @@ def test_one_frequency_has_no_modulation_but_the_positional_path_reports_one():
 
     # Frequency-aware: exactly zero.
     wiring = derive_wiring([_FREQS[0], _FREQS[0]])
-    packed, psi = envelope_inputs(fields, wiring)
-    wired = np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)
+    packed = envelope_inputs(fields, wiring)
+    wired = np.linalg.norm(get_TI_vectors(packed), axis=1)
     assert float(wired[0]) == pytest.approx(0.0, abs=1e-12)
 
     # Frequency-blind (positional): a large number for a beat that is not there.
@@ -111,8 +113,8 @@ def test_a_real_difference_frequency_still_matches_the_measured_beat():
     assert measured == pytest.approx(1.6, rel=1e-3)
 
     wiring = derive_wiring([_FREQS[0], _FREQS[1]])
-    packed, psi = envelope_inputs(_as_rows(e_a, e_b), wiring)
-    wired = np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)
+    packed = envelope_inputs(_as_rows(e_a, e_b), wiring)
+    wired = np.linalg.norm(get_TI_vectors(packed), axis=1)
     assert float(wired[0]) == pytest.approx(measured, rel=1e-3)
 
 
@@ -126,10 +128,10 @@ def test_wired_and_positional_agree_when_the_frequencies_really_do_differ():
     fields = _as_rows(*vecs)
 
     wiring = derive_wiring([_FREQS[0], _FREQS[1], _FREQS[3], _FREQS[3] + 10.0])
-    packed, psi = envelope_inputs(fields, wiring)
+    packed = envelope_inputs(fields, wiring)
     assert len(packed) == 4
 
-    wired = get_TI_vectors(packed, psi=psi)
+    wired = get_TI_vectors(packed)
     positional = get_TI_vectors(fields)
     assert np.allclose(wired, positional, rtol=1e-12, atol=1e-12)
 
@@ -147,10 +149,9 @@ def test_montage_order_changes_exposure_at_one_frequency():
     e_a = np.array([1.0, 0.0, 0.0])
     e_b = np.array([0.8, 0.0, 0.0])
     fields = _as_rows(e_a, e_b)
+    reversed_fields = _as_rows(e_a, -e_b)  # pair B's electrodes swapped
     same = (_FREQS[0], _FREQS[0])
-
-    aligned = derive_wiring([_FREQS[0], _FREQS[0]], [0.0, 0.0])
-    reversed_ = derive_wiring([_FREQS[0], _FREQS[0]], [0.0, 180.0])
+    wiring = derive_wiring([_FREQS[0], _FREQS[0]])
 
     # Truth, from the time domain.
     ms_aligned = _true_mean_square([e_a, e_b], same, (0.0, 0.0))
@@ -162,26 +163,26 @@ def test_montage_order_changes_exposure_at_one_frequency():
     assert ms_reversed == pytest.approx(0.2**2 / 2.0, rel=1e-9)
 
     # Frequency-aware metrics reproduce both, and they differ.
-    assert float(hf_sar(*fields, wiring=aligned)[0]) == pytest.approx(
+    assert float(hf_sar(*fields, wiring=wiring)[0]) == pytest.approx(
         2.0 * ms_aligned, rel=1e-12
     )
-    assert float(hf_sar(*fields, wiring=reversed_)[0]) == pytest.approx(
+    assert float(hf_sar(*reversed_fields, wiring=wiring)[0]) == pytest.approx(
         2.0 * ms_reversed, rel=1e-12
     )
-    assert float(hf_peak(*fields, wiring=aligned)[0]) == pytest.approx(
+    assert float(hf_peak(*fields, wiring=wiring)[0]) == pytest.approx(
         pk_aligned, rel=1e-9
     )
-    assert float(hf_peak(*fields, wiring=reversed_)[0]) == pytest.approx(
+    assert float(hf_peak(*reversed_fields, wiring=wiring)[0]) == pytest.approx(
         pk_reversed, rel=1e-9
     )
 
     # Without a wiring both orders collapse to the same, frequency-blind answer
     # -- which is why the montage order looked free.
     assert float(hf_sar(*fields)[0]) == pytest.approx(
-        float(hf_sar(*_as_rows(e_a, -e_b))[0]), rel=1e-12
+        float(hf_sar(*reversed_fields)[0]), rel=1e-12
     )
     assert float(hf_peak(*fields)[0]) == pytest.approx(
-        float(hf_peak(*_as_rows(e_a, -e_b))[0]), rel=1e-12
+        float(hf_peak(*reversed_fields)[0]), rel=1e-12
     )
 
 
@@ -221,13 +222,13 @@ def test_shared_carrier_pairs_beat_after_they_are_summed():
     wiring = derive_wiring([f_lo, f_lo, f_hi, f_hi])
     assert len(wiring.groups) == 2 and wiring.has_coherent_sum
 
-    packed, psi = envelope_inputs(_as_rows(a1, a2, b1, b2), wiring)
+    packed = envelope_inputs(_as_rows(a1, a2, b1, b2), wiring)
     assert len(packed) == 2
     # The groups summed first: 1.0 along x, 1.0 along y.
     assert packed[0][0] == pytest.approx([1.0, 0.0, 0.0])
     assert packed[1][0] == pytest.approx([0.0, 1.0, 0.0])
 
-    wired = np.linalg.norm(get_TI_vectors(packed, psi=psi), axis=1)
+    wired = np.linalg.norm(get_TI_vectors(packed), axis=1)
     # Equal orthogonal carriers: the same envelope as any single such pair.
     direct = np.linalg.norm(
         get_TI_vectors(_as_rows(np.array([1.0, 0, 0]), np.array([0, 1.0, 0]))),
@@ -249,11 +250,11 @@ def test_a_non_beating_carrier_raises_power_without_raising_the_envelope():
     with_extra = derive_wiring([_FREQS[0], _FREQS[1], 9000.0])
     assert with_extra.unpaired == (2,)
 
-    p0, psi0 = envelope_inputs(_as_rows(e_a, e_b), beat_only)
-    p1, psi1 = envelope_inputs(_as_rows(e_a, e_b, e_c), with_extra)
+    p0 = envelope_inputs(_as_rows(e_a, e_b), beat_only)
+    p1 = envelope_inputs(_as_rows(e_a, e_b, e_c), with_extra)
 
-    md0 = float(np.linalg.norm(get_TI_vectors(p0, psi=psi0), axis=1)[0])
-    md1 = float(np.linalg.norm(get_TI_vectors(p1, psi=psi1), axis=1)[0])
+    md0 = float(np.linalg.norm(get_TI_vectors(p0), axis=1)[0])
+    md1 = float(np.linalg.norm(get_TI_vectors(p1), axis=1)[0])
     assert md1 < md0
 
     # ... while the carrier exposure rises, because the extra carrier is real.
@@ -265,41 +266,7 @@ def test_a_non_beating_carrier_raises_power_without_raising_the_envelope():
 
 
 # --------------------------------------------------------------------------
-# 4. Elliptical carriers: exact exposure, refused envelope.
-# --------------------------------------------------------------------------
-
-
-def test_quadrature_channels_make_a_circular_carrier():
-    """Exposure stays exact for a phase the envelope math cannot represent."""
-    from tit.fields import hf_peak, hf_sar
-    from tit.wiring import WiringError, derive_wiring, envelope_inputs
-
-    e_a = np.array([1.0, 0.0, 0.0])
-    e_b = np.array([0.0, 1.0, 0.0])
-    fields = _as_rows(e_a, e_b)
-    wiring = derive_wiring([_FREQS[0], _FREQS[0]], [0.0, 90.0])
-    assert not wiring.is_real
-
-    # Truth: a circular carrier of constant magnitude 1.
-    measured_ms = _true_mean_square([e_a, e_b], (_FREQS[0], _FREQS[0]), (0.0, np.pi / 2))
-    measured_pk = _true_peak([e_a, e_b], (_FREQS[0], _FREQS[0]), (0.0, np.pi / 2))
-    assert measured_ms == pytest.approx(1.0, rel=1e-9)
-    assert measured_pk == pytest.approx(1.0, rel=1e-6)
-
-    assert float(hf_sar(*fields, wiring=wiring)[0]) == pytest.approx(
-        2.0 * measured_ms, rel=1e-12
-    )
-    assert float(hf_peak(*fields, wiring=wiring)[0]) == pytest.approx(
-        measured_pk, rel=1e-3
-    )
-
-    # The envelope is refused rather than approximated.
-    with pytest.raises(WiringError, match="elliptically polarised"):
-        envelope_inputs(fields, wiring)
-
-
-# --------------------------------------------------------------------------
-# 5. Nothing moves when no frequencies are given.
+# 4. Nothing moves when no frequencies are given.
 # --------------------------------------------------------------------------
 
 
