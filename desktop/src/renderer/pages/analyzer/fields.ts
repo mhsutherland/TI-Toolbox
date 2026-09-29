@@ -44,6 +44,13 @@ export const FIELD_REGISTRY: FieldSpec[] = [
       "Largest instantaneous magnitude of the summed carrier fields (peak-to-zero): max over sign choices of |sum_i s_i·E_i| (Cassarà et al. 2025, Eq. 3).",
   },
   {
+    name: "hf_peak_phaselocked",
+    kind: "safety",
+    units: "V/m",
+    description:
+      "Peak carrier field for a phase-locked drive (shared clock, exact frequencies, all sources starting at phase 0): max over time of |sum_i E_i·cos(2π·f_i·t)|. Never exceeds hf_peak.",
+  },
+  {
     name: "hf_sar",
     kind: "safety",
     units: "(V/m)²",

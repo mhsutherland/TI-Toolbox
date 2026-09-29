@@ -48,7 +48,19 @@ than the E-fields themselves, must be summed"; Part II, p. 16: total power
 deposition "is equal to the summed combination from all channels (incoherent
 field superposition)").
 
-Both are distinct from the stimulation-relevant modulation envelope
+``hf_peak_phaselocked(*fields, frequencies_hz)`` — peak carrier field for a
+*phase-locked* drive.  ``hf_peak`` assumes every relative carrier phase
+eventually occurs; a drive whose channels share one clock, run at exactly the
+stated frequencies and all start at phase 0 visits only the phases its
+frequencies allow.  This returns the true maximum over time of
+``|sum_i E_i cos(2 pi f_i t)|``, polarity again coming from electrode order.
+It never exceeds ``hf_peak``; it equals ``hf_peak`` for two commensurate
+carriers and ``|sum E|`` for one shared frequency, and can be lower from three
+carriers up (e.g. a four-pair montage with one pair reversed).  The modulation
+envelope in :mod:`tit.calc` makes the same fixed-phase assumption, so the two
+are consistent; ``hf_peak`` stays the assumption-free upper bound.
+
+All three are distinct from the stimulation-relevant modulation envelope
 (``TI_max`` / ``TI_normal``), computed in :mod:`tit.calc`.
 
 See Also
@@ -61,6 +73,9 @@ tit.source.fsaverage : Projects hf_peak / hf_sar onto fsaverage.
 from __future__ import annotations
 
 import itertools
+import math
+from fractions import Fraction
+from functools import reduce
 
 import numpy as np
 
@@ -85,6 +100,26 @@ _SWEEP_N_DIRECTIONS = 4000
 # alongside _CHUNK_SIZE (peak use ~ _CHUNK_SIZE * _SWEEP_DIR_BATCH, independent
 # of N since the sweep accumulates one field at a time).
 _SWEEP_DIR_BATCH = 200
+
+#: Longest common period `hf_peak_phaselocked` will search.  A phase-locked
+#: drive repeats every 1/gcd(f_i) seconds; frequencies with no common period
+#: this short (e.g. 2000 and 2000.37 Hz) never settle into a pattern worth
+#: calling phase-locked, and the search cost grows with the period.
+PHASELOCKED_MAX_PERIOD_S = 2.0
+
+# Frequencies are rationalised on this grid (Hz) to find their common period.
+_PHASELOCKED_FREQ_RESOLUTION_HZ = 1e-3
+
+# Time samples per cycle of the fastest carrier.  The sampled maximum is then
+# refined (parabola + Newton step), so this sets how close a candidate must be
+# to the true peak to be found, not the final accuracy.
+_PHASELOCKED_SAMPLES_PER_CYCLE = 32
+
+# Local sample maxima per element carried into refinement.
+_PHASELOCKED_CANDIDATES = 8
+
+# Elements per chunk; memory ~ chunk * n_samples * 3 floats.
+_PHASELOCKED_CHUNK = 256
 
 
 def _stack_fields(fields: tuple) -> tuple[np.ndarray, tuple]:
@@ -290,6 +325,166 @@ def hf_peak(*fields, wiring=None) -> np.ndarray:
     else:
         flat = _hf_peak_sweep(stack)
     return flat.reshape(shape[:-1])
+
+
+def phase_locked_period(frequencies_hz) -> float:
+    """Common period (s) of a phase-locked drive at these carrier frequencies.
+
+    ``1 / gcd(f_i)``, with the frequencies rationalised on a 1 mHz grid.
+
+    Parameters
+    ----------
+    frequencies_hz : sequence of float
+        One carrier frequency per electrode pair (Hz).
+
+    Returns
+    -------
+    float
+        The period after which every carrier returns to its starting phase.
+
+    Raises
+    ------
+    ValueError
+        If a frequency is not finite and positive, is not a multiple of
+        1 mHz, or the common period exceeds `PHASELOCKED_MAX_PERIOD_S`.
+    """
+    freqs = [float(f) for f in frequencies_hz]
+    if not freqs:
+        raise ValueError("hf_peak_phaselocked needs at least one carrier frequency.")
+    ticks = []
+    for f in freqs:
+        if not math.isfinite(f) or f <= 0.0:
+            raise ValueError(
+                f"Carrier frequency must be finite and positive, got {f!r}."
+            )
+        q = (
+            Fraction(f).limit_denominator(10**6)
+            / Fraction(_PHASELOCKED_FREQ_RESOLUTION_HZ).limit_denominator()
+        )
+        if abs(float(q) - round(float(q))) > 1e-6:
+            raise ValueError(
+                f"hf_peak_phaselocked: carrier frequency {f:g} Hz is not a multiple of "
+                f"{_PHASELOCKED_FREQ_RESOLUTION_HZ:g} Hz, so the drive has no common period."
+            )
+        ticks.append(int(round(float(q))))
+    gcd_hz = reduce(math.gcd, ticks) * _PHASELOCKED_FREQ_RESOLUTION_HZ
+    period = 1.0 / gcd_hz
+    if period > PHASELOCKED_MAX_PERIOD_S:
+        named = ", ".join(f"{f:g}" for f in freqs)
+        raise ValueError(
+            f"hf_peak_phaselocked: frequencies {named} Hz repeat only every {period:g} s "
+            f"(longer than {PHASELOCKED_MAX_PERIOD_S:g} s), so a phase-locked peak is not "
+            "defined for them; choose frequencies whose greatest common divisor is at "
+            f"least {1.0 / PHASELOCKED_MAX_PERIOD_S:g} Hz, or use hf_peak."
+        )
+    return period
+
+
+def hf_peak_phaselocked(*fields, frequencies_hz) -> np.ndarray:
+    """Peak carrier field for a phase-locked drive: ``max_t |sum_i E_i cos(2 pi f_i t)|``.
+
+    Assumes the channels share one clock, run at exactly ``frequencies_hz``
+    and all start at phase 0; polarity comes from electrode order (the sign of
+    each ``E_i``).  Tissue is quasi-static, so the relative phase at every
+    point equals the relative phase at the sources.  Channels at one frequency
+    therefore add as vectors at every instant, and distinct frequencies visit
+    only the relative phases their common period allows -- unlike
+    :func:`hf_peak`, which assumes every relative phase occurs.
+
+    The waveform is even and periodic in the common period ``T``
+    (:func:`phase_locked_period`), so the search runs over ``[0, T/2]``,
+    sampled at `_PHASELOCKED_SAMPLES_PER_CYCLE` points per cycle of the
+    fastest carrier.  The largest local sample maxima of each element are then
+    refined by a parabola vertex and a Newton step on ``|E(t)|^2``.  Every value
+    returned is ``|E(t)|`` at an actual time, so the result never exceeds the
+    true maximum (nor :func:`hf_peak`); the refinement makes it match the
+    maximum to well under 1e-6 relative in the tests.
+
+    Parameters
+    ----------
+    *fields : array-like, shape ``(..., 3)``
+        Two or more channel E-field vectors (one per electrode pair), all the
+        same shape, in pair order.
+    frequencies_hz : sequence of float
+        One carrier frequency per field, in the same order.
+
+    Returns
+    -------
+    numpy.ndarray, shape ``(...,)``
+        The phase-locked peak carrier field magnitude.
+
+    Raises
+    ------
+    ValueError
+        If the field and frequency counts differ, or the frequencies have no
+        usable common period (see :func:`phase_locked_period`).
+    """
+    stack, shape = _stack_fields(fields)
+    n, m, _ = stack.shape
+    freqs = np.asarray([float(f) for f in frequencies_hz], dtype=float)
+    if freqs.size != n:
+        raise ValueError(
+            f"hf_peak_phaselocked: {n} fields but {freqs.size} frequencies; one per pair is required."
+        )
+    period = phase_locked_period(freqs)
+    omega = 2.0 * np.pi * freqs
+    half = 0.5 * period
+    n_samp = int(np.ceil(half * freqs.max() * _PHASELOCKED_SAMPLES_PER_CYCLE)) + 1
+    t = np.linspace(0.0, half, n_samp)
+    dt = t[1] - t[0]
+    cos_t = np.cos(omega[:, None] * t[None, :])  # (n, T)
+    # |E(t)|^2 = sum_ij (E_i . E_j) cos_i(t) cos_j(t): one small Gram matrix per
+    # element times a fixed (pairs x samples) table -- a single BLAS product.
+    iu, ju = np.triu_indices(n)
+    weight = np.where(iu == ju, 1.0, 2.0)
+    prod = cos_t[iu] * cos_t[ju]  # (P, T)
+    # Windows of about half a cycle of the fastest carrier hold roughly one local
+    # maximum each; the best sample of the best windows are the candidates.
+    w = max(1, _PHASELOCKED_SAMPLES_PER_CYCLE // 2)
+    n_win = -(-n_samp // w)
+    pad = n_win * w - n_samp
+    k = min(_PHASELOCKED_CANDIDATES, n_win)
+
+    def eval_at(block, tc):
+        """|E|^2 and its first two time derivatives at times tc (c, k)."""
+        ph = omega[:, None, None] * tc[None, :, :]  # (n, c, k)
+        c, s = np.cos(ph), np.sin(ph)
+        e = np.einsum("icj,icd->cjd", c, block)  # (c, k, 3)
+        de = np.einsum("icj,icd->cjd", -s * omega[:, None, None], block)
+        d2e = np.einsum("icj,icd->cjd", -c * (omega**2)[:, None, None], block)
+        f0 = np.sum(e * e, axis=-1)
+        f1 = 2.0 * np.sum(e * de, axis=-1)
+        f2 = 2.0 * (np.sum(de * de, axis=-1) + np.sum(e * d2e, axis=-1))
+        return f0, f1, f2
+
+    out = np.empty(m, dtype=float)
+    for lo in range(0, m, _PHASELOCKED_CHUNK):
+        hi = min(lo + _PHASELOCKED_CHUNK, m)
+        block = stack[:, lo:hi, :]  # (n, c, 3)
+        gram = np.einsum("icd,jcd->cij", block, block)[:, iu, ju] * weight  # (c, P)
+        mag2 = gram @ prod  # (c, T)
+        if pad:
+            mag2 = np.pad(mag2, ((0, 0), (0, pad)), constant_values=-np.inf)
+        win = mag2.reshape(hi - lo, n_win, w)
+        in_win = win.argmax(axis=2)  # (c, n_win)
+        win_max = np.take_along_axis(win, in_win[..., None], axis=2)[..., 0]
+        top = np.argpartition(win_max, -k, axis=1)[:, -k:]  # (c, k)
+        sidx = top * w + np.take_along_axis(in_win, top, axis=1)
+        best = np.take_along_axis(mag2, sidx, axis=1).max(axis=1)
+        t0 = t[sidx]
+        tc = t0
+        # Two Newton steps on d|E|^2/dt = 0 from each candidate sample, kept
+        # within one sample of it; every evaluation is |E|^2 at a real time.
+        for _ in range(2):
+            f0, f1, f2 = eval_at(block, tc)
+            best = np.maximum(best, f0.max(axis=1))
+            with np.errstate(divide="ignore", invalid="ignore"):
+                step = np.where(f2 < 0, -f1 / f2, 0.0)
+            tc = np.clip(tc + step, t0 - dt, t0 + dt)
+        f0, _, _ = eval_at(block, tc)
+        best = np.maximum(best, f0.max(axis=1))
+        out[lo:hi] = np.sqrt(np.maximum(best, 0.0))
+    return out.reshape(shape[:-1])
 
 
 def hf_sar(*fields, wiring=None) -> np.ndarray:

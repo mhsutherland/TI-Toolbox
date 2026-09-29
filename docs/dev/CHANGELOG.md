@@ -9,6 +9,22 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
 ---
 ### Unreleased
 
+- **New output field: `hf_peak_phaselocked`.** The peak carrier field of a *phase-locked* drive
+  (channels on one clock, exact frequencies, every source starting at phase 0, polarity from
+  electrode order): the true maximum over time of the summed carrier field. `hf_peak` remains the
+  largest field over *every* relative phase, an upper bound for free-running carriers, and is
+  unchanged. The two agree for two carriers; from three up the phase-locked peak can be lower. In a
+  four-pair mTI montage with one pair reversed, `hf_peak` is identical by construction, while the
+  phase-locked peak falls with the modulation. It needs a carrier frequency on every pair (the
+  Simulator blocks the job and says so otherwise), frequencies that repeat within 2 s, and about
+  2–3 minutes of extra time per whole-head mesh. It is written to the subject-space meshes, NIfTIs
+  and surfaces, not projected to fsaverage. See
+  [Safety Metrics]({{ site.baseurl }}/wiki/analyzer/#safety-metrics).
+
+- **Fix: the Analyzer listed simulation fields under wrong names.** `hf_peak`, `hf_sar`, `TI_avg`
+  and `mTI_max` NIfTIs were catalogued as "peak", "sar", "avg" and "max", which the Analyzer then
+  offered and the field selector rejected. Every registered field name is now recognised.
+
 - **Carrier frequency can be set per channel.** The Simulator's job rows take a **Frequency** (Hz)
   per electrode pair, each channel on a line of its own, as does the Optimizer's **Carriers**
   section for an mTI (4-pair) search. Polarity is the electrode order, the first electrode of a pair

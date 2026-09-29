@@ -6,6 +6,7 @@ All SimNIBS calls are mocked (simnibs is a MagicMock in conftest).
 Tests verify orchestration logic: construction, dispatch, callbacks, result dicts.
 """
 
+import contextlib
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -690,7 +691,7 @@ class TestOutputFieldSelection:
     the write but still computing would save nothing.
     """
 
-    def _run_ti(self, output_fields):
+    def _run_ti(self, output_fields, **config_overrides):
         with (
             patch.object(_base_mod, "get_path_manager") as mock_pm,
             patch.object(_base_mod, "setup_montage_directories") as mock_setup_dirs,
@@ -710,7 +711,13 @@ class TestOutputFieldSelection:
             patch.object(_ti_mod, "get_TI_avg") as mock_ti_avg,
             patch.object(_ti_mod, "hf_peak") as mock_hf_peak,
             patch.object(_ti_mod, "hf_sar") as mock_hf_sar,
+            contextlib.ExitStack() as extra,
         ):
+            # Kept out of the `with` header, which Python caps at 20 managers. With
+            # frequencies set the wired envelope path runs; its math is tested elsewhere.
+            self.phaselocked = extra.enter_context(patch.object(_ti_mod, "hf_peak_phaselocked"))
+            for name in ("envelope_inputs", "get_TI_vectors", "get_TI_dir"):
+                extra.enter_context(patch.object(_ti_mod, name))
             mock_pm.return_value.m2m.return_value = "/fake/m2m"
             mock_pm.return_value.simulation.return_value = "/fake/sim/test_ti"
             mock_pm.return_value.eeg_positions.return_value = "/fake/eeg"
@@ -733,7 +740,7 @@ class TestOutputFieldSelection:
                 )
             }
             sim = _ti_mod.TISimulation(
-                _make_sim_config(output_fields=output_fields),
+                _make_sim_config(output_fields=output_fields, **config_overrides),
                 _make_ti_montage(),
                 MagicMock(),
             )
@@ -765,6 +772,20 @@ class TestOutputFieldSelection:
         hf_sar_m.assert_called_once()
         ti_avg.assert_not_called()
         assert const.FIELD_TI_MAX not in written
+
+    def test_phaselocked_peak_is_not_computed_unless_selected(self):
+        self._run_ti([const.FIELD_HF_PEAK], frequencies_hz=[2000.0, 2010.0])
+        self.phaselocked.assert_not_called()
+
+    def test_selecting_phaselocked_peak_computes_it_with_the_frequencies(self):
+        written, _, hf_peak_m, _ = self._run_ti(
+            [const.FIELD_HF_PEAK_PHASELOCKED], frequencies_hz=[2000.0, 2010.0]
+        )
+        self.phaselocked.assert_called_once()
+        assert self.phaselocked.call_args.kwargs["frequencies_hz"] == [2000.0, 2010.0]
+        assert len(self.phaselocked.call_args.args) == 2  # one field per pair
+        hf_peak_m.assert_not_called()
+        assert written == [const.FIELD_HF_PEAK_PHASELOCKED]
 
 
 @pytest.mark.unit

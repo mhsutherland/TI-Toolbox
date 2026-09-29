@@ -55,6 +55,7 @@ rationale below consolidates later amendments without treating superseded design
 | 36 | 2026-09-22 | **Carrier frequency and phase are explicit per channel; coherence is derived, not assumed.** Supersedes the positional carrier model (2026-09-07) as the *default*, which it keeps | phase half reversed by 38 |
 | 37 | 2026-09-22 | mEx takes **fixed per-pair currents** (`MExConfig.currents_mA`); no mEx current-split search; pool mode refuses unequal currents | live |
 | 38 | 2026-09-24 | **Phase removed from the carrier drive; polarity is electrode order alone.** `frequencies_hz` stays; the Simulator shows one channel per line | reverses the phase half of 36 |
+| 39 | 2026-09-29 | **`hf_peak_phaselocked`: the peak carrier field of a phase-locked drive**, beside the unchanged worst-case `hf_peak` | live |
 
 ## Runtime and distribution
 
@@ -483,6 +484,34 @@ config reloads as in phase. No released version shipped the field.
 
 **Revisit if.** A study needs arbitrary relative phase: phase-locked mTI envelope offsets, or
 same-frequency carriers in quadrature. `tit.calc.psi` is the hook for the former.
+
+### 2026-09-29 — A phase-locked peak carrier field beside the worst case
+
+**Decision.** Add `hf_peak_phaselocked` (`tit.fields.hf_peak_phaselocked`), a selectable Simulator
+output: `max_t |sum_i E_i cos(2 pi f_i t)|` over one common period `1/gcd(f_i)`, with every source
+starting at phase 0 and polarity from electrode order. It requires `frequencies_hz`, is refused for
+frequency sets that repeat only after more than 2 s, and is a subject-space output only (excluded
+from `FSAVG_FIELD_NAMES`). `hf_peak` is unchanged and stays the default carrier-peak measure.
+
+**Why.** In the E225 mTI polarity test (four pairs at 2000/2010/3000/3010 Hz, pair 4 reversed),
+`hf_peak` was identical in phase and antiphase, as it must be: it maximises over every relative
+phase, and reversing a pair only relabels the sign patterns. The modulation envelope, however,
+assumes a fixed phase relationship, and fell by ~82%. A time-domain check with all sources starting
+together put the antiphase peak carrier field at ~0.80 of in-phase (median over 1,500 tetrahedra).
+The two outputs therefore answered different scenarios; the phase-locked field lets the carrier
+field and the envelope rest on the same assumption.
+
+**Alternatives.** Replacing `hf_peak` was rejected: it is the right bound whenever the carriers'
+phases are not controlled (independent stimulators drift), and it is what published results use.
+A start-phase input was rejected for now, because phase was removed on 2026-09-24 and all current
+setups start together; the function takes no phases, so adding them later is local.
+
+**Cost.** A time-domain search: the half period is sampled at 32 points per cycle of the fastest
+carrier and the best candidates refined by Newton steps, about 2–3 minutes per whole-head mesh.
+It is exact to the reference's sampling error in `tests/numerical/test_sci11_phaselocked_peak.py`.
+
+**Revisit if.** Start phases other than zero are needed, a group analysis needs it on fsaverage, or
+the cost matters for large batches (a numba kernel following `tit/_mti_kernel.py`).
 
 ## Development milestones
 

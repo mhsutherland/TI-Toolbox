@@ -106,3 +106,42 @@ def test_the_validate_route_now_reports_the_mismatch():
     )
     assert not result.ok
     assert "requires 4 current intensities" in result.errors[0].message
+
+
+@pytest.mark.unit
+class TestPhaseLockedPeakNeedsFrequencies:
+    """``hf_peak_phaselocked`` is defined by the carrier frequencies, so it is refused without them."""
+
+    def _cfg(self, **kwargs):
+        return SimulationConfig(
+            subject_id="ernie",
+            montages=[_montage("m", 2)],
+            intensities=[1.0, 1.0],
+            output_fields=["TI_max", "hf_peak_phaselocked"],
+            **kwargs,
+        )
+
+    def test_refused_without_frequencies(self):
+        from tit.sim.config import PHASELOCKED_NEEDS_FREQUENCIES
+
+        with pytest.raises(ValueError) as excinfo:
+            self._cfg()
+        assert str(excinfo.value) == PHASELOCKED_NEEDS_FREQUENCIES
+
+    def test_accepted_with_frequencies(self):
+        cfg = self._cfg(frequencies_hz=[2000.0, 2010.0])
+        assert "hf_peak_phaselocked" in cfg.output_fields
+
+    def test_refused_when_the_frequencies_have_no_usable_period(self):
+        # 2000 and 2000.001 Hz repeat only every 1000 s: no phase-locked pattern to search.
+        with pytest.raises(ValueError, match="repeat only every"):
+            self._cfg(frequencies_hz=[2000.0, 2000.001])
+
+    def test_other_fields_still_need_no_frequencies(self):
+        cfg = SimulationConfig(
+            subject_id="ernie",
+            montages=[_montage("m", 2)],
+            intensities=[1.0, 1.0],
+            output_fields=["TI_max", "hf_peak"],
+        )
+        assert cfg.frequencies_hz is None

@@ -158,6 +158,9 @@ FIELD_TI_AVG = "TI_avg"  # Modulation depth averaged over direction (get_TI_avg)
 FIELD_HF_PEAK = "hf_peak"  # peak carrier field, max over sign choices of the
 # vector sum; at N=2 this is max(|E1+E2|,|E1-E2|) (Cassarà 2025)
 FIELD_HF_SAR = "hf_sar"  # carrier heating driver, sum_i |E_i|^2 (∝ SAR)
+FIELD_HF_PEAK_PHASELOCKED = "hf_peak_phaselocked"  # peak carrier field for a
+# phase-locked drive (shared clock, all sources start at phase 0):
+# max over t of |sum_i E_i cos(2 pi f_i t)|; needs frequencies_hz
 
 # Field "kind" classification used by FieldSpec below. This groups fields by
 # what they are computed from -- the low-frequency envelope versus the carrier
@@ -194,7 +197,7 @@ class FieldSpec:
     description: str
 
 
-#: Single source of truth for the six output field quantities. Order here
+#: Single source of truth for the seven output field quantities. Order here
 #: is the canonical display order used by GUI widgets built from this
 #: registry (``get_field_names()`` preserves it).
 FIELD_REGISTRY: tuple[FieldSpec, ...] = (
@@ -244,6 +247,18 @@ FIELD_REGISTRY: tuple[FieldSpec, ...] = (
             "Largest instantaneous magnitude of the summed carrier fields "
             "(peak-to-zero): max over sign choices of |sum_i s_i*E_i| "
             "(Cassarà et al. 2025, Eq. 3)."
+        ),
+    ),
+    FieldSpec(
+        name=FIELD_HF_PEAK_PHASELOCKED,
+        label=FIELD_HF_PEAK_PHASELOCKED,
+        kind=FIELD_KIND_SAFETY,
+        units="V/m",
+        description=(
+            "Peak carrier field for a phase-locked drive (shared clock, exact "
+            "frequencies, all sources starting at phase 0): max over time of "
+            "|sum_i E_i cos(2 pi f_i t)|. Never exceeds hf_peak; needs a "
+            "carrier frequency for every pair."
         ),
     ),
     FieldSpec(
@@ -316,6 +331,21 @@ OUTPUT_FIELD_DEFINITIONS: tuple[tuple[str, str, str, str, str], ...] = (
         "Cassara et al. 2025, Eq. 3.",
     ),
     (
+        FIELD_HF_PEAK_PHASELOCKED,
+        "V/m",
+        "Largest instantaneous magnitude the summed carrier fields actually "
+        "reach when the drive is phase-locked: the channels share one clock, "
+        "run at exactly the stated frequencies and all start at phase 0, with "
+        "polarity set by electrode order. hf_peak assumes every relative "
+        "phase eventually occurs; this uses only the phases the frequencies "
+        "allow, so it never exceeds hf_peak and can be lower from three "
+        "carriers up. Needs a carrier frequency for every pair.",
+        "max over t in one common period (1/gcd of the frequencies) of "
+        "|sum_i E_i*cos(2*pi*f_i*t)| -- sampled, then refined by Newton steps.",
+        "Time-domain form of Cassara et al. 2025, Eq. 3, for a fixed phase "
+        "relationship.",
+    ),
+    (
         FIELD_HF_SAR,
         "(V/m)^2",
         "Sum of carrier power. The carriers sit at different, incommensurate "
@@ -345,12 +375,14 @@ def output_fields_help_text() -> str:
         "Which volume fields to compute and write for each simulation.\n\n"
         + body
         + "\n\nCost: TI_avg adds a direction sweep; hf_peak and hf_sar are "
-        "effectively free alongside a field that is already being computed."
+        "effectively free alongside a field that is already being computed; "
+        "hf_peak_phaselocked adds a time-domain search (a few minutes for a "
+        "whole head mesh)."
     )
 
 
 def get_selectable_output_field_specs() -> tuple[FieldSpec, ...]:
-    """Return :class:`FieldSpec` entries for the four selectable output fields.
+    """Return :class:`FieldSpec` entries for the selectable output fields.
 
     Order matches :data:`SELECTABLE_OUTPUT_FIELDS` (registry order). Used by
     the GUI to build output-field checkboxes without hardcoding labels.
@@ -372,7 +404,7 @@ def get_field_spec(name: str) -> FieldSpec:
     raise KeyError(f"Unknown field name: {name!r}")
 
 
-#: The four volume-mesh output fields a simulation may selectively compute
+#: The volume-mesh output fields a simulation may selectively compute
 #: and write (``SimulationConfig.output_fields``). Excludes ``FIELD_MTI_MAX``
 #: (the mTI on-disk spelling of ``FIELD_TI_MAX``, not a distinct user choice)
 #: and ``FIELD_TI_NORMAL`` (a node field on a separate surface mesh, not a
@@ -385,7 +417,9 @@ SELECTABLE_OUTPUT_FIELDS: tuple[str, ...] = tuple(
 
 
 #: Field names valid on the fsaverage surface: every registered field except
-#: ``FIELD_MTI_MAX`` ("mTI_max") and ``FIELD_TI_AVG`` ("TI_avg"). The
+#: ``FIELD_MTI_MAX`` ("mTI_max"), ``FIELD_TI_AVG`` ("TI_avg") and
+#: ``FIELD_HF_PEAK_PHASELOCKED`` (a subject-space output only: projecting it
+#: would need each run's frequencies and the time-domain search). The
 #: central-surface pipeline always emits ``TI_max`` regardless of whether the
 #: simulation was 2-pair or 4-pair, so there is no separate mTI fsaverage
 #: field; ``TI_avg`` has no central-surface overlay to project (it is only
@@ -398,7 +432,7 @@ SELECTABLE_OUTPUT_FIELDS: tuple[str, ...] = tuple(
 FSAVG_FIELD_NAMES: tuple[str, ...] = tuple(
     spec.name
     for spec in FIELD_REGISTRY
-    if spec.name not in (FIELD_MTI_MAX, FIELD_TI_AVG)
+    if spec.name not in (FIELD_MTI_MAX, FIELD_TI_AVG, FIELD_HF_PEAK_PHASELOCKED)
 )
 
 

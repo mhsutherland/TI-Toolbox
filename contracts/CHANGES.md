@@ -1116,3 +1116,16 @@ field, which is exactly a 180° phase. Offsets other than 0°/180° are no longe
 non-strict mode ignores the key, so a config written by the 2026-09-22 build reloads with its phases
 dropped. A run that used a 180° phase then reloads as in phase; re-express it by swapping that
 pair's electrodes.
+
+## 2026-09-29 — `hf_peak_phaselocked` output field
+
+Generated-schema change only: `contracts/openapi.yaml` is untouched. `SimulationConfig.output_fields`
+is a free string list, not an enum, so the only regenerated change is its docstring-derived
+description in `config.schema.json`, `openapi.json` and `schema.d.ts` (`dev/build_contracts.py`,
+`npm run gen:api`).
+
+**Added**: `"hf_peak_phaselocked"` is a valid `SimulationConfig.output_fields` entry: the peak
+carrier field of a phase-locked drive (shared clock, exact frequencies, every source starting at
+phase 0). It requires `frequencies_hz`; `__post_init__` rejects the config without them, and rejects
+frequency sets whose common period exceeds 2 s. It is not a valid fsaverage field
+(`FsavgMapConfig`/`StatsConfig` field lists are unchanged). Existing payloads validate unchanged.

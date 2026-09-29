@@ -21,6 +21,7 @@ class TestFieldRegistryCompleteness:
         "FIELD_TI_NORMAL",
         "FIELD_TI_AVG",
         "FIELD_HF_PEAK",
+        "FIELD_HF_PEAK_PHASELOCKED",
         "FIELD_HF_SAR",
     )
 
@@ -32,8 +33,8 @@ class TestFieldRegistryCompleteness:
                 value in registry_names
             ), f"{attr} ({value!r}) missing from FIELD_REGISTRY"
 
-    def test_registry_has_exactly_six_fields(self):
-        assert len(const.FIELD_REGISTRY) == 6
+    def test_registry_has_exactly_seven_fields(self):
+        assert len(const.FIELD_REGISTRY) == 7
 
     def test_registry_names_match_constants_exactly(self):
         """No drift: the registry's name set equals the FIELD_* constant set."""
@@ -114,6 +115,7 @@ class TestFieldRegistryLookupHelpers:
             "TI_normal",
             "TI_avg",
             "hf_peak",
+            "hf_peak_phaselocked",
             "hf_sar",
         )
 
@@ -121,7 +123,7 @@ class TestFieldRegistryLookupHelpers:
         functional = const.get_field_names(kind=const.FIELD_KIND_FUNCTIONAL)
         safety = const.get_field_names(kind=const.FIELD_KIND_SAFETY)
         assert set(functional) == {"TI_max", "mTI_max", "TI_normal", "TI_avg"}
-        assert set(safety) == {"hf_peak", "hf_sar"}
+        assert set(safety) == {"hf_peak", "hf_peak_phaselocked", "hf_sar"}
         # Partition: every field is exactly one kind.
         assert set(functional) | set(safety) == set(const.get_field_names())
         assert set(functional) & set(safety) == set()
@@ -142,21 +144,22 @@ class TestFieldRegistryLookupHelpers:
     def test_get_fields_by_kind_returns_specs_not_names(self):
         safety_specs = const.get_fields_by_kind(const.FIELD_KIND_SAFETY)
         assert all(isinstance(spec, const.FieldSpec) for spec in safety_specs)
-        assert {spec.name for spec in safety_specs} == {"hf_peak", "hf_sar"}
+        assert {spec.name for spec in safety_specs} == {"hf_peak", "hf_peak_phaselocked", "hf_sar"}
 
 
 @pytest.mark.unit
 class TestSafetyFieldsGuard:
     """Load-bearing guard: safety fields must never silently gain/lose members.
 
-    A later phase must be able to rely on "safety fields == {hf_peak, hf_sar}"
-    to make sure carrier-exposure safety metrics are never made optional by
-    accident when new fields are added to the registry.
+    A later phase must be able to rely on the exact carrier-field set to make
+    sure carrier-exposure metrics are never made optional by accident when new
+    fields are added to the registry. Extended deliberately on 2026-09-29 with
+    ``hf_peak_phaselocked`` (the phase-locked peak carrier field).
     """
 
-    def test_safety_fields_are_exactly_hf_peak_and_hf_sar(self):
+    def test_safety_fields_are_exactly_the_carrier_fields(self):
         safety_names = set(const.get_field_names(kind=const.FIELD_KIND_SAFETY))
-        assert safety_names == {"hf_peak", "hf_sar"}
+        assert safety_names == {"hf_peak", "hf_peak_phaselocked", "hf_sar"}
 
     def test_functional_fields_are_exactly_the_ti_fields(self):
         functional_names = set(const.get_field_names(kind=const.FIELD_KIND_FUNCTIONAL))
@@ -177,7 +180,7 @@ class TestFieldRegistryTIAvg:
     def test_safety_fields_unaffected_by_ti_avg(self):
         """Adding a new functional field must not perturb the safety set."""
         safety_names = set(const.get_field_names(kind=const.FIELD_KIND_SAFETY))
-        assert safety_names == {"hf_peak", "hf_sar"}
+        assert safety_names == {"hf_peak", "hf_peak_phaselocked", "hf_sar"}
 
 
 @pytest.mark.unit
@@ -196,6 +199,11 @@ class TestValidFsavgFieldsConsumer:
         """fsaverage projection only ever emits TI_max (see tit.source.fsaverage);
         the 4-pair mesh spelling mTI_max must not appear."""
         assert const.FIELD_MTI_MAX not in VALID_FSAVG_FIELDS
+
+    def test_valid_fsavg_fields_excludes_phaselocked_peak(self):
+        """hf_peak_phaselocked is a subject-space output only; fsaverage must
+        refuse it rather than accept it and silently never project it."""
+        assert const.FIELD_HF_PEAK_PHASELOCKED not in VALID_FSAVG_FIELDS
 
     def test_valid_fsavg_fields_excludes_ti_avg(self):
         """TI_avg has no central-surface overlay to project (tit.source.fsaverage

@@ -1022,7 +1022,9 @@ def tool_get_quick_facts(_: Dict[str, Any]) -> Dict[str, Any]:
             "raises WiringError.",
             "exposure_metrics": "Quasi-static: E is a phasor AMPLITUDE (V/m, peak, not RMS), "
             "no time axis; every exposure quantity is a worst case over unknown relative "
-            "phases. Per Cassara et al. 2025 Part II p.8, fields at identical frequencies "
+            "phases, except hf_peak_phaselocked: the true peak max_t |sum_i E_i cos(2 pi f_i t)| "
+            "of a phase-locked drive (all sources start at phase 0; needs frequencies_hz; "
+            "<= hf_peak). Per Cassara et al. 2025 Part II p.8, fields at identical frequencies "
             "superpose COHERENTLY (vector sum within a channel) and different frequencies "
             "INCOHERENTLY (SAR addition across carriers). hf_sar = sum_c |E_c|^2 in (V/m)^2 "
             "with no 1/2; calibrated SAR = (sigma/2rho)*hf_sar; RMS carrier field = "

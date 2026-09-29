@@ -71,6 +71,15 @@ class MontageMode(Enum):
     FREEHAND = "freehand"
 
 
+#: Shown when ``hf_peak_phaselocked`` is selected without carrier frequencies;
+#: the desktop Simulator shows the same sentence before submitting.
+PHASELOCKED_NEEDS_FREQUENCIES = (
+    "hf_peak_phaselocked needs a carrier frequency for every electrode pair "
+    "(frequencies_hz): it is the peak carrier field of a phase-locked drive at "
+    "those frequencies."
+)
+
+
 @dataclass
 class Montage:
     """A named electrode montage used in a TI/mTI simulation.
@@ -342,10 +351,11 @@ class SimulationConfig:
     output_fields : list[str]
         Which volume-mesh fields to compute and write. Logical names from
         :data:`tit.constants.SELECTABLE_OUTPUT_FIELDS`: ``"TI_max"``,
-        ``"TI_avg"``, ``"hf_peak"``, ``"hf_sar"``. ``"TI_max"`` maps to
-        ``mTI_max`` on disk for mTI meshes. Defaults to
-        ``["TI_max"]`` only -- ``TI_avg`` and the safety fields
-        (``hf_peak``, ``hf_sar``) must be opted into.
+        ``"TI_avg"``, ``"hf_peak"``, ``"hf_peak_phaselocked"``, ``"hf_sar"``.
+        ``"TI_max"`` maps to ``mTI_max`` on disk for mTI meshes. Defaults to
+        ``["TI_max"]`` only -- ``TI_avg`` and the carrier fields
+        (``hf_peak``, ``hf_peak_phaselocked``, ``hf_sar``) must be opted into.
+        ``hf_peak_phaselocked`` also needs ``frequencies_hz``.
     tissue_conductivities : dict[int, float] or None
         Per-tissue conductivity overrides (S/m), keyed by SimNIBS tissue
         number (1-based, matching ``tdcs.cond`` index + 1). ``None`` (the
@@ -478,6 +488,16 @@ class SimulationConfig:
                 )
 
         self._validate_carrier_drive()
+        if const.FIELD_HF_PEAK_PHASELOCKED in self.output_fields:
+            # The phase-locked peak is defined by the actual carrier frequencies;
+            # without them there is nothing to lock to.
+            if self.frequencies_hz is None:
+                raise ValueError(PHASELOCKED_NEEDS_FREQUENCIES)
+            from tit.fields import phase_locked_period
+
+            phase_locked_period(
+                self.frequencies_hz
+            )  # rejects sets with no usable period
 
         if self.tissue_conductivities is not None:
             # JSON object keys are always strings; deserialize_config coerces them back

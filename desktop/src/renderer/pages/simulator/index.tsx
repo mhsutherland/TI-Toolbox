@@ -22,6 +22,7 @@ import {
   DEFAULT_JOB_SETTINGS,
   emptyRow,
   isRunnableRow,
+  phaseLockedReason,
   type JobSettings,
   type MontagePreview,
   type MontageSource,
@@ -178,7 +179,11 @@ function SimulatorPage() {
       .filter((b): b is { id: string; reason: string } => !!b.reason),
   );
 
-  const plan = useSimPlan(runnableRows, params, planSubjects, runnableRows.length === 0 ? null : subjectsBlocked);
+  // A row asking for the phase-locked peak without a frequency on every pair cannot run; say so
+  // alongside any subject problem rather than letting the plan request fail.
+  const phaseLocked = phaseLockedReason(runnableRows, params);
+  const blocked = [subjectsBlocked, phaseLocked].filter(Boolean).join(" ") || null;
+  const plan = useSimPlan(runnableRows, params, planSubjects, runnableRows.length === 0 ? null : blocked);
 
   const digest = plan.model ? (jobCountLabel(plan.model) ?? "Resolving the plan…") : (plan.blockedReason ?? "Resolving the plan…");
 

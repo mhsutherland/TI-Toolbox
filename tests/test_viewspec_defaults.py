@@ -567,6 +567,13 @@ def test_a_simulations_three_volumes_do_not_all_come_out_named_TI_max() -> None:
     assert len(names) == 3, "three different fields must not share one name"
 
 
+def test_the_phase_locked_peak_is_its_own_field_not_hf_peak() -> None:
+    """`..._hf_peak_phaselocked.nii.gz` ends in `_phaselocked`, not `_hf_peak`: its own field."""
+    sim = "L_Insula_TI_subject"
+    assert viewspec._scene_field_name(f"{sim}_hf_peak_phaselocked.nii.gz") == "hf_peak_phaselocked"
+    assert viewspec._scene_field_name(f"{sim}_hf_peak.nii.gz") == "hf_peak"
+
+
 def test_a_mesh_still_reads_its_field_from_the_hints() -> None:
     """A `.msh` genuinely carries no trailing field token, so the hint chain stays for those.
 

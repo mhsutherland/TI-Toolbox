@@ -155,7 +155,24 @@ $$
 
 with $$s_i = \pm 1$$ the channel's polarity, set by its electrode order (a reversed pair's field is negated, which is a 180° phase). The consequence is that electrode order stops being free: for two equal aligned fields on one frequency, `hf_sar` is $$\lVert 2\mathbf{E} \rVert^2$$ one way round and $$0$$ the other, where the incoherent sum reports $$2\lVert \mathbf{E} \rVert^2$$ regardless. The sign maximisation runs over *frequencies*, not raw fields — within one frequency the relative polarity is known, not worst-cased — so `EXACT_SIGN_ENUM_MAX_FIELDS` counts frequency groups, and `hf_peak_is_exact` takes the wiring.
 
-Both metrics are **opt-in**: neither is in `SimulationConfig.output_fields`'s default (`["TI_max"]`), so a run must explicitly request `hf_peak`/`hf_sar` to get them written.
+#### Phase-locked peak: `hf_peak_phaselocked`
+
+`hf_peak` is the largest instantaneous carrier field over **every** relative carrier phase: an upper bound that assumes the carriers drift into any alignment over time, which is what independent, free-running stimulators do. A drive whose channels share one clock, run at exactly the stated frequencies and all start at phase 0 visits only the relative phases its frequencies allow. `hf_peak_phaselocked` is that drive's actual peak:
+
+$$
+\mathrm{hf\_peak\_phaselocked} = \max_{t \in [0, T)} \left\lVert \sum_i \mathbf{E}_i \cos(2\pi f_i t) \right\rVert,
+\qquad T = 1 / \gcd(f_i)
+$$
+
+with each $$\mathbf{E}_i$$ signed by its electrode order. Tissue is treated as quasi-static, so the relative phase at every point equals the relative phase at the sources. Properties:
+
+- it never exceeds `hf_peak`;
+- for two commensurate carriers it equals `hf_peak` (both sign patterns occur within one period), and for one shared frequency it equals $$\lVert \sum \mathbf{E}_i \rVert$$;
+- from three carriers up it can be lower. Example: in a four-pair mTI montage with one pair reversed, the two carriers' envelopes are half a cycle apart, so the four fields never peak together. `hf_peak` cannot see the reversal; this field can.
+
+It is the carrier-field counterpart of the modulation envelope, which already assumes a fixed phase relationship between the carriers. Report `hf_peak` when the relative phases are not controlled (the assumption-free bound) and `hf_peak_phaselocked` when the hardware is phase-locked and started together. It needs `frequencies_hz`, the frequencies must repeat within 2 s, and it is computed by sampling one half period (the waveform is even and periodic) and refining the best candidates with Newton steps; every reported value is $$\lVert \mathbf{E}(t) \rVert$$ at an actual time.
+
+All three are **opt-in**: none is in `SimulationConfig.output_fields`'s default (`["TI_max"]`), so a run must explicitly request `hf_peak`/`hf_peak_phaselocked`/`hf_sar` to get them written.
 
 ### Spatial domain: how the analyzer summarises a field
 

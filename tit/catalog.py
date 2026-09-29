@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from tit.atlas.constants import VOXEL_ATLASES, mni_resources_dir
+from tit.constants import FIELD_REGISTRY
 from tit.atlas.mesh import MeshAtlasManager
 from tit.atlas.voxel import VoxelAtlasManager, parse_region_label
 from tit.paths import (
@@ -655,7 +656,17 @@ def subject_detail(pm: PathManager, sid: str) -> dict | None:
 
 _MODE_DIRS = ("mTI", "TI")
 _TISSUE_PREFIXES = ("grey_", "white_", "csf_", "bone_", "skin_", "eyes_")
-_FIELD_RE = re.compile(r"_(TI_max|TI_normal|TI_focality|magnE)(?:\.nii)")
+# Every registered output field plus the SimNIBS-side names, longest first, anchored to the
+# extension: `..._subject_hf_peak.nii.gz` is `hf_peak`, not "peak" (the last-token fallback
+# below used to answer "peak"/"sar"/"avg"), and `hf_peak_phaselocked` is not `hf_peak`.
+_KNOWN_FIELDS = sorted(
+    {spec.name for spec in FIELD_REGISTRY} | {"TI_normal", "TI_focality", "magnE"},
+    key=len,
+    reverse=True,
+)
+_FIELD_RE = re.compile(
+    r"_(" + "|".join(map(re.escape, _KNOWN_FIELDS)) + r")\.nii(?:\.gz)?$"
+)
 
 
 def _strip_tissue_prefix(basename: str) -> tuple[str, str | None]:

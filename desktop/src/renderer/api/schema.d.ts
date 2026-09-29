@@ -6560,10 +6560,11 @@ export interface components {
          *     output_fields : list[str]
          *         Which volume-mesh fields to compute and write. Logical names from
          *         :data:`tit.constants.SELECTABLE_OUTPUT_FIELDS`: ``"TI_max"``,
-         *         ``"TI_avg"``, ``"hf_peak"``, ``"hf_sar"``. ``"TI_max"`` maps to
-         *         ``mTI_max`` on disk for mTI meshes. Defaults to
-         *         ``["TI_max"]`` only -- ``TI_avg`` and the safety fields
-         *         (``hf_peak``, ``hf_sar``) must be opted into.
+         *         ``"TI_avg"``, ``"hf_peak"``, ``"hf_peak_phaselocked"``, ``"hf_sar"``.
+         *         ``"TI_max"`` maps to ``mTI_max`` on disk for mTI meshes. Defaults to
+         *         ``["TI_max"]`` only -- ``TI_avg`` and the carrier fields
+         *         (``hf_peak``, ``hf_peak_phaselocked``, ``hf_sar``) must be opted into.
+         *         ``hf_peak_phaselocked`` also needs ``frequencies_hz``.
          *     tissue_conductivities : dict[int, float] or None
          *         Per-tissue conductivity overrides (S/m), keyed by SimNIBS tissue
          *         number (1-based, matching ``tdcs.cond`` index + 1). ``None`` (the

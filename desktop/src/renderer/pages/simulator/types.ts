@@ -170,6 +170,19 @@ export function rowHasCarrierDrive(row: SelectedRow, numPairs: number): boolean 
   return values.every((v) => v !== "" && Number.isFinite(Number(v)) && Number(v) > 0);
 }
 
+/**
+ * Why these rows cannot run because they ask for `hf_peak_phaselocked` without a complete carrier
+ * drive, or `null`. The server rejects the same configs; this says so before submitting.
+ */
+export function phaseLockedReason(rows: SelectedRow[], defaults: JobSettings): string | null {
+  const missing = rows.filter(
+    (row) => settingsFor(row, defaults).outputFields.includes(PHASELOCKED_FIELD) && !rowHasCarrierDrive(row, rowPairCount(row)),
+  );
+  if (missing.length === 0) return null;
+  const who = missing.length === 1 ? `Job "${missing[0]?.name || "untitled"}"` : `${missing.length} jobs`;
+  return `${who}: ${PHASELOCKED_NEEDS_FREQUENCIES}`;
+}
+
 /** How many electrode pairs a row carries, whichever form they came in. */
 export function rowPairCount(row: SelectedRow): number {
   return row.pairs?.length ?? row.xyzPairs?.length ?? 0;
@@ -200,12 +213,21 @@ export const OUTPUT_FIELDS: OutputFieldSpec[] = [
   { name: "TI_max", description: "Envelope modulation depth (peak-to-trough), maximised over direction (Grossman et al. 2017; Hirata et al. 2024)." },
   { name: "TI_avg", description: "Envelope modulation depth (peak-to-trough), averaged over sampled directions rather than maximised." },
   { name: "hf_peak", description: "Largest instantaneous magnitude of the summed carrier fields (peak-to-zero): max over sign choices of |sum_i s_i*E_i| (Cassarà et al. 2025, Eq. 3)." },
+  { name: "hf_peak_phaselocked", description: "Peak carrier field for a phase-locked drive (shared clock, exact frequencies, all sources starting at phase 0): max over time of |sum_i E_i cos(2 pi f_i t)|. Never exceeds hf_peak; needs a carrier frequency for every pair." },
   { name: "hf_sar", description: "Sum of carrier power, sum_i |E_i|^2. Proportional to SAR but not calibrated: SAR = (sigma/2*rho)*hf_sar (Cassarà et al. 2025)." },
 ];
 
+/** The phase-locked peak carrier field: defined only when every pair has a carrier frequency. */
+export const PHASELOCKED_FIELD = "hf_peak_phaselocked";
+
+/** Same sentence as `tit/sim/config.py`'s `PHASELOCKED_NEEDS_FREQUENCIES`, shown before submitting. */
+export const PHASELOCKED_NEEDS_FREQUENCIES =
+  "hf_peak_phaselocked needs a carrier frequency for every electrode pair (frequencies_hz): it is the peak carrier field of a phase-locked drive at those frequencies.";
+
 export const OUTPUT_FIELDS_HELP =
   "Which volume fields to compute and write for each simulation. TI_normal (surface normal component) is always computed for 2-pair TI and is not a choice here. " +
-  "Cost: TI_avg adds a direction sweep; hf_peak and hf_sar are effectively free alongside a field that is already being computed.";
+  "Cost: TI_avg adds a direction sweep; hf_peak and hf_sar are effectively free alongside a field that is already being computed; " +
+  "hf_peak_phaselocked adds a time-domain search (a few minutes for a whole head mesh) and needs a carrier frequency for every pair.";
 
 /** Which montage bucket a montage lives in: `uni_polar_montages` / `multi_polar_montages`. */
 export type MontageKind = "uni_polar" | "multi_polar";

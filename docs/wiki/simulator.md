@@ -16,7 +16,7 @@ The Simulator computes the full FEM temporal interference field. It sits between
 - **Simulation Mode**: Unipolar/multipolar with per-channel current inputs
 - **EEG Net**: Dropdown selection of available electrode configurations
 - **Conductivity Model**: Four anisotropy types (`scalar`, `vn`, `dir`, `mc`) with configurable bounds (see [Conductivity and Anisotropy](#conductivity-and-anisotropy))
-- **Output Fields**: Checkboxes for `TI_max` (default), `TI_avg`, `hf_peak` and `hf_sar`; at least one must be selected
+- **Output Fields**: Checkboxes for `TI_max` (default), `TI_avg`, `hf_peak`, `hf_peak_phaselocked` and `hf_sar`; at least one must be selected. `hf_peak_phaselocked` needs a carrier frequency for every pair; the page says so before you submit
 - **Real-time Logging**: Simulation progress and status updates
 
 ---
@@ -162,7 +162,7 @@ Per-channel high-frequency meshes are renamed `TDCS_1..N` -> `TDCS_A..Z` when mo
 
 ## Output Fields
 
-`SimulationConfig.output_fields` gates which volume-mesh fields are computed and written -- it defaults to `["TI_max"]` **only**. `TI_avg` and the safety fields (`hf_peak`, `hf_sar`) must be opted into; the four selectable names are exactly `("TI_max", "TI_avg", "hf_peak", "hf_sar")` (`const.SELECTABLE_OUTPUT_FIELDS`). The gating skips the _computation_, not just the write -- unrequested fields are never evaluated. In the GUI (shared by TI and mTI), output fields are checkboxes with only `TI_max` pre-checked; submitting with none checked is rejected with "Select at least one output field."
+`SimulationConfig.output_fields` gates which volume-mesh fields are computed and written -- it defaults to `["TI_max"]` **only**. `TI_avg` and the carrier fields (`hf_peak`, `hf_peak_phaselocked`, `hf_sar`) must be opted into; the selectable names are exactly `("TI_max", "TI_avg", "hf_peak", "hf_peak_phaselocked", "hf_sar")` (`const.SELECTABLE_OUTPUT_FIELDS`). `hf_peak_phaselocked` also requires `frequencies_hz` (the config is rejected without it, and rejected when the frequencies repeat only after more than 2 s); it is a subject-space output only and is not projected to fsaverage. It adds a time-domain search, about 2–3 minutes for a whole head mesh. The gating skips the _computation_, not just the write -- unrequested fields are never evaluated. In the GUI (shared by TI and mTI), output fields are checkboxes with only `TI_max` pre-checked; submitting with none checked is rejected with "Select at least one output field."
 
 What each field _means_ — the beat-envelope modulation depth, the direction-averaged envelope, and the carrier-exposure safety metrics — is documented once, under [Quantities of Interest on the Analyzer page]({{ site.baseurl }}/wiki/analyzer/#quantities-of-interest).
 

@@ -19,6 +19,9 @@ import {
   DEFAULT_JOB_SETTINGS,
   emptyRow,
   rowHasCarrierDrive,
+  phaseLockedReason,
+  PHASELOCKED_NEEDS_FREQUENCIES,
+  OUTPUT_FIELDS,
   type SelectedRow,
 } from "../../src/renderer/pages/simulator/types";
 
@@ -202,5 +205,40 @@ describe("buildSimulationConfig carrier drive", () => {
     // The field is gone from the contract; SimulationConfig forbids unknown keys.
     const config = { ...buildSimulationConfig(row({ frequencies: "2000,2000" }), DEFAULTS), phases_deg: [0, 180] };
     expect((await validate("SimulationConfig", config)).valid).toBe(false);
+  });
+});
+
+describe("hf_peak_phaselocked needs a carrier frequency on every pair", () => {
+  const withField = { ...DEFAULTS, outputFields: ["TI_max", "hf_peak_phaselocked"] };
+
+  it("is offered as an output field", () => {
+    expect(OUTPUT_FIELDS.map((f) => f.name)).toContain("hf_peak_phaselocked");
+  });
+
+  it("blocks a row that asks for it without frequencies, naming the job", () => {
+    const reason = phaseLockedReason([row()], withField);
+    expect(reason).toContain('Job "F3_F4"');
+    expect(reason).toContain(PHASELOCKED_NEEDS_FREQUENCIES);
+  });
+
+  it("blocks a partly filled drive too", () => {
+    expect(phaseLockedReason([row({ frequencies: "2000," })], withField)).not.toBeNull();
+  });
+
+  it("allows it once every pair has a frequency", () => {
+    expect(phaseLockedReason([row({ frequencies: "2000,2010" })], withField)).toBeNull();
+  });
+
+  it("does not block rows that do not ask for it", () => {
+    expect(phaseLockedReason([row()], DEFAULTS)).toBeNull();
+  });
+
+  it("uses a row's own settings over the page defaults", () => {
+    const own = row({ settings: { ...DEFAULTS, outputFields: ["hf_peak_phaselocked"] } });
+    expect(phaseLockedReason([own], DEFAULTS)).not.toBeNull();
+  });
+
+  it("counts several blocked jobs", () => {
+    expect(phaseLockedReason([row(), row({ name: "Other" })], withField)).toMatch(/^2 jobs: /);
   });
 });

@@ -204,3 +204,29 @@ def test_empty_project(tmp_path: Path) -> None:
     assert catalog.subject_ids(pm) == []
     assert catalog.list_subjects(pm) == []
     assert catalog.list_simulations(pm, "001") is None
+
+
+def test_mode_niftis_names_every_output_field_exactly(tmp_path: Path) -> None:
+    """A simulation's NIfTIs are listed under their real field names.
+
+    The last-token fallback used to answer "peak", "sar", "avg" and "max" for
+    hf_peak, hf_sar, TI_avg and mTI_max, which the Analyzer then offered and
+    the field selector rejected. hf_peak_phaselocked must not read as hf_peak.
+    """
+    from tit.catalog import _mode_niftis
+
+    niftis = tmp_path / "niftis"
+    niftis.mkdir()
+    stems = {
+        "sim_TI_subject_TI_max.nii.gz": ("TI_max", None),
+        "grey_sim_TI_subject_TI_avg.nii.gz": ("TI_avg", "grey"),
+        "sim_TI_subject_hf_peak.nii.gz": ("hf_peak", None),
+        "sim_TI_subject_hf_peak_phaselocked.nii.gz": ("hf_peak_phaselocked", None),
+        "white_sim_TI_subject_hf_sar.nii.gz": ("hf_sar", "white"),
+        "sim_mTI_subject_mTI_max.nii.gz": ("mTI_max", None),
+        "sim_TI_MNI_TI_max.nii.gz": ("TI_max", None),
+    }
+    for name in stems:
+        (niftis / name).write_bytes(b"")
+    listed = {os.path.basename(e["path"]): (e["field"], e["tissue"]) for e in _mode_niftis(str(tmp_path))}
+    assert listed == stems

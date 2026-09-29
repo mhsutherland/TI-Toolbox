@@ -453,7 +453,10 @@ def warn_if_carrier_metrics_unrequested(config, wiring, logger):
     if wiring is None:
         return
     selected = set(config.output_fields)
-    have_carrier = bool(selected & {const.FIELD_HF_PEAK, const.FIELD_HF_SAR})
+    have_carrier = bool(
+        selected
+        & {const.FIELD_HF_PEAK, const.FIELD_HF_PEAK_PHASELOCKED, const.FIELD_HF_SAR}
+    )
     if have_carrier:
         return
     if not wiring.has_modulation:

@@ -1838,6 +1838,7 @@ _VOLUME_FIELD_TOKENS = (
     "mTI_max",
     "TI_normal",
     "TI_max",
+    "hf_peak_phaselocked",
     "hf_peak",
     "hf_sar",
     "magnE",

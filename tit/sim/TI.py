@@ -32,7 +32,7 @@ from simnibs.utils import TI_utils as TI
 
 from tit import constants as const
 from tit.calc import get_TI_avg, get_TI_dir, get_TI_vectors
-from tit.fields import hf_peak, hf_sar
+from tit.fields import hf_peak, hf_peak_phaselocked, hf_sar
 from tit.sim.base import BaseSimulation
 from tit.sim.config import SimulationMode
 from tit.sim.utils import (
@@ -180,6 +180,16 @@ class TISimulation(BaseSimulation):
             # NIfTIs alongside TI_max.
             mout.add_element_field(
                 hf_peak(*e_fields, wiring=wiring), const.FIELD_HF_PEAK
+            )
+        if const.FIELD_HF_PEAK_PHASELOCKED in selected:
+            # Peak carrier field for a phase-locked drive at the configured
+            # frequencies (all sources starting at phase 0); SimulationConfig
+            # has already required frequencies_hz for this field.
+            mout.add_element_field(
+                hf_peak_phaselocked(
+                    *e_fields, frequencies_hz=self.config.frequencies_hz
+                ),
+                const.FIELD_HF_PEAK_PHASELOCKED,
             )
         if const.FIELD_HF_SAR in selected:
             # Carrier-exposure safety map (Cassarà 2025): heating driver.
