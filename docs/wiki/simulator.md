@@ -228,6 +228,60 @@ NIfTI exports are written in subject space by default. Enable **Generate MNI NIf
 
 The GUI writes a JSON config and runs `simnibs_python -m tit.sim config.json`; the same command works from a shell (see [Scripting]({{ site.baseurl }}/wiki/scripting/) for the `SimulationConfig` fields).
 
+## AM phase (two-pair TI) {#am-phase}
+
+`tit.tools.am_phase` maps, for a finished two-pair TI simulation, **when in each beat the envelope of the field magnitude peaks**. It is a post-processing tool with no button in the app: it reads the simulation's two per-pair carrier meshes (`high_Frequency/mesh/{ID}_TDCS_{1,2}_{conductivity}.msh`, written by every TI simulation) and `documentation/config.json`, and writes volumes on the subject's T1 grid. Nothing needs to be re-simulated.
+
+**Running it.** Run it inside the container — from the app's **Notebooks** page or a `docker exec` shell, as described under [Where scripts run]({{ site.baseurl }}/wiki/scripting/#where-scripts-run). The project is found automatically there.
+
+```bash
+simnibs_python -m tit.tools.am_phase --subject {ID} --sim {montage}
+```
+
+| Option | Effect |
+| --- | --- |
+| `--subject` | subject ID without `sub-` (required) |
+| `--sim` | simulation name, its folder under `Simulations/` (required) |
+| `--roi-label N` | add a summary of value N in `m2m_{ID}/segmentation/labeling.nii.gz` to the JSON (e.g. 53, right hippocampus, in charm's labeling) |
+| `--overwrite` | replace earlier outputs; without it a run stops if any exist |
+| `--skip-nifti` | write only the JSON |
+| `--project` | project root, if it cannot be detected |
+| `--n-check` | elements sampled by the brute-force check (default 2000) |
+
+From Python (for example in a notebook), the same run is
+
+```python
+from tit.tools.am_phase import run_am_phase
+
+report = run_am_phase("101", "L_Insula", roi_label=53)
+print(report["nifti_checks"]["volume_cm3_GM"])
+```
+
+A run takes a few minutes per simulation (under two for one head model in testing, including the NIfTI conversion). It prints the brute-force check and the NIfTI checks as it goes and finishes with the JSON's path.
+
+**Viewing.** The label volumes come with `_LUT.txt` colour tables beside them, so the Viewer draws them as labels (aqua: peak at $$\psi = 0$$; amber: $$\psi = \pi$$) over the subject's T1, like the simulation's other NIfTIs. Show `depth` or `cos` alongside to see where a label is weakly determined (see below).
+
+**What it computes.** Under SimNIBS's quasi-static, purely resistive model each pair's field is a fixed vector times its carrier, so at every point $$\mathbf{E}(t) = \mathbf{E}_1 \cos\theta + \mathbf{E}_2 \cos(\theta + \psi)$$, where $$\psi$$, the phase of carrier 2 relative to carrier 1, advances by $$2\pi$$ per beat and is the same everywhere in the head. The envelope of $$\lVert \mathbf{E} \rVert$$ then peaks at $$\psi = 0$$ where $$\mathbf{E}_1 \cdot \mathbf{E}_2 > 0$$ and at $$\psi = \pi$$ where $$\mathbf{E}_1 \cdot \mathbf{E}_2 < 0$$ — never in between — whatever the frequency offset. Which side is called 0 follows the montage's polarity (the first electrode of each pair is `+`); reversing one pair swaps the two labels.
+
+| File, in `TI/niftis/` | Contents |
+| --- | --- |
+| `{montage}_AMphase_label.nii.gz` | 0 outside grey and white matter; 1 = envelope peaks at $$\psi = 0$$; 2 = at $$\psi = \pi$$ |
+| `{montage}_AMphase_label_GM.nii.gz` | the same labels, grey matter only |
+| `{montage}_AMphase_label_LUT.txt`, `..._label_GM_LUT.txt` | colour tables for the label volumes |
+| `{montage}_AMphase_depth.nii.gz` | envelope depth, maximum minus minimum over a beat, V/m (not `TI_max`) |
+| `{montage}_AMphase_cos.nii.gz` | cosine of the angle between $$\mathbf{E}_1$$ and $$\mathbf{E}_2$$ |
+| `{montage}_AMphase.json` | definitions, inputs, volumes, an independent brute-force check and grid checks; with `--roi-label N`, a summary of value N in `m2m_{ID}/segmentation/labeling.nii.gz` |
+
+Volumes are converted with the same mesh-to-NIfTI step as the simulator's own outputs. mTI and [carrier-only](#carrier-only-control) simulations are refused: the first has more than one beat, the second none.
+
+**Reading the maps.**
+
+- The label is the phase of the envelope of the field **magnitude**. Along a fixed direction $$\mathbf{n}$$ — a cortical normal, a neuron's preferred axis, the axis of a recording pair — the envelope peaks according to the sign of $$(\mathbf{n} \cdot \mathbf{E}_1)(\mathbf{n} \cdot \mathbf{E}_2)$$, which can differ from the sign of $$\mathbf{E}_1 \cdot \mathbf{E}_2$$ wherever the fields are not parallel. The label is not the phase a direction-sensitive population or a recording contact sees.
+- Near 90° between the fields the two candidate peaks are almost equal (exactly equal at 90°), so the envelope peaks twice per beat and the label separates two nearly identical cases. The depth does **not** vanish there — for perpendicular fields of equal magnitude $$a$$ it is $$(\sqrt{2} - 1)\,a$$ — so a non-zero depth near the border does not make the label meaningful. Use `cos` to find these regions.
+- The result rests on the resistive model with frequency-independent conductivities; a tissue phase shift at the carrier frequency, which would move the peaks off exactly 0 or $$\pi$$, is outside it.
+
+---
+
 ## Report generation
 
 Every simulated montage writes a simulation report, from the app, `run_simulation()` or a JSON config alike: the grey-matter envelope and where its maximum is, the montage on the EEG cap with its dose, and the envelope in three planes. Rebuild one without re-simulating with `simnibs_python -m tit.reporting.generators.simulation <project> <subject> <simulation>`. See [Reports]({{ site.baseurl }}/wiki/reports/).

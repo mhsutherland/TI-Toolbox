@@ -7,6 +7,9 @@ lazily inside each module so that ``import tit.tools`` remains fast.
 
 Modules
 -------
+am_phase
+    Map where in each beat the field-magnitude envelope of a two-pair TI
+    simulation peaks, as NIfTI volumes.
 check_for_update
     Query the GitHub API for new TI-Toolbox releases.
 extract_labels

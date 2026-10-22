@@ -207,6 +207,14 @@ run_simulation(cfg)
 
 Two electrode pairs run a TI simulation, four or more run mTI — the API picks for you.
 
+After a two-pair TI simulation, `tit.tools.am_phase` maps where in each beat the field-magnitude envelope peaks, as NIfTIs beside the simulation's own (see [AM phase]({{ site.baseurl }}/wiki/simulator/#am-phase)):
+
+```python
+from tit.tools.am_phase import run_am_phase
+
+run_am_phase("ernie", "L_Insula")   # or: simnibs_python -m tit.tools.am_phase --subject ernie --sim L_Insula
+```
+
 ## Analyzer
 
 In the GUI you choose a simulation, a space and a region on the **Analyzer** page. `Analyzer` is

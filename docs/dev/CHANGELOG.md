@@ -7,6 +7,10 @@ permalink: /releases/changelog/
 Detailed technical changelog for all versions of the Temporal Interference Toolbox. Entries include implementation changes, compatibility notes, and fixes. For a condensed, user-facing summary, see [Version History]({{ site.baseurl }}/releases/) and the latest release page.
 
 ---
+### Unreleased
+
+- **New: AM-phase maps for two-pair TI simulations** — `simnibs_python -m tit.tools.am_phase --subject {ID} --sim {montage}` writes, beside a finished simulation's NIfTIs, a label volume of where in each beat the envelope of the field magnitude peaks ($$\psi = 0$$ where $$\mathbf{E}_1 \cdot \mathbf{E}_2 > 0$$, $$\pi$$ where it is negative), a grey-matter-only copy with colour tables, the envelope depth, the cosine of the angle between the two fields, and a JSON with definitions and an independent brute-force check. The label is the phase of the field-magnitude envelope, not of the envelope along any fixed direction. See [AM phase]({{ site.baseurl }}/wiki/simulator/#am-phase).
+
 ### v3.1.1 — October 20, 2026 (Latest Release)
 
 A patch release for everyone on v3.1.0; update the desktop app and the image together (the image
