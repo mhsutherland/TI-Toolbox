@@ -1,21 +1,39 @@
 """Top-montage selection for ex-search and m-ex-search runs.
 
-``final_output.csv`` is written in enumeration order, so choosing a montage to
-run meant sorting it by ``Focality`` by hand and checking against
-``intensity_vs_focality_scatter.png`` whether the focal rows also reach a usable
-intensity.  This module encodes that judgement as three rules:
+Both searches finish in :func:`tit.opt.ex.results.process_and_save`, which calls
+:func:`rank_run`, so a two-channel (TI) and a four-channel (mTI) run are ranked
+by the same code.  ``final_output.csv`` is written in enumeration order; this
+module produces a short, ranked list from it in five steps:
 
 1. **Intensity floor** -- keep only montages with
    ``TImean_ROI >= min_intensity`` (default 0.6 V/m).
-2. **Focality first** -- rank the survivors by ``Focality``
+2. **Electrode separation** -- reject a montage when two electrodes belonging to
+   *different* channels sit closer than ``min_separation_mm`` (default 25 mm) on
+   the subject's cap.  The intent is to avoid energising immediately
+   neighbouring electrodes, on the assumption that this is less well tolerated
+   and so limits the usable current; the threshold is a default, not a
+   validated tolerability limit.  The rule mostly bites on multipolar runs (two
+   channel pairs per hemisphere); on a two-channel run the channels are
+   typically more than 120 mm apart and it removes nothing.
+3. **Rank by focality** -- sort the survivors by ``Focality``
    (``TImean_ROI / TImean_GM``) descending, tie-breaking on ``TImean_ROI``.
-3. **Electrode separation** -- reject a montage when two electrodes belonging to
-   *different* channels sit closer than ``min_separation_mm`` (default 20 mm) on
-   the subject's cap.  Two energised electrodes that are immediate neighbours
-   force the usable current amplitude down, because participants feel the
-   stimulation far more.  The rule mostly bites on multipolar runs (two channel
-   pairs per hemisphere); on a 2-pair run the channels are metres apart in
-   electrode terms and it is a no-op.
+4. **Collapse current splits** (on by default) -- keep only the best-ranked
+   current split of each electrode set.
+5. **Diversity** (off by default) -- with ``min_distinct_electrodes=N``, skip a
+   montage that differs from an already-selected one by fewer than N electrodes.
+
+The top ``top_n`` (default 5) are kept.  Steps 1 and 2 are evaluated on every
+row (a row failing step 1 is counted only under ``intensity``); steps 4 and 5
+are evaluated in rank order and stop once ``top_n`` picks are made, so their
+counts in ``dropped`` cover only the rows examined, not the whole run.
+
+The defaults are starting points, not recommendations.  ``TImean_ROI`` scales
+with the total injected current, so the meaning of a fixed V/m floor depends on
+the current the search used.  Ranking on focality alone above the floor is one
+choice among several: neighbouring ranks can differ in focality by far less
+than the uncertainty of the underlying head model while differing noticeably in
+``TImean_ROI``, so inspect the scatter and the CSV rather than taking rank 1 as
+the answer.
 
 Nothing is relaxed silently: when fewer than ``top_n`` montages qualify the
 selection is short, and the counts removed by each filter are written to
@@ -24,15 +42,35 @@ selection is short, and the counts removed by each filter are written to
 Outputs, written next to ``final_output.csv``
 ---------------------------------------------
 ``top_montages.csv``
-    The picks, with the source file's own columns plus ``Rank`` and
-    ``MinSeparation_mm``.
+    The picks, with the source file's own columns and values unchanged, plus
+    ``Rank`` and ``MinSeparation_mm``.  Not written when nothing qualifies.
 ``top_montages.json``
-    Thresholds, filter counts, the resolved coordinate source, and the per-pick
-    electrode breakdown.
+    Always written.  Keys:
+
+    - ``thresholds`` -- the settings used (``min_separation_mm`` is ``null``
+      when the separation rule could not be applied).
+    - ``separation_applied`` -- whether electrode coordinates were found.
+    - ``positions_source`` -- which cap file the coordinates came from, or why
+      there are none.  Paths are as seen by the process that ran the ranking
+      (inside the container, ``/mnt/...``).
+    - ``n_total`` -- rows in ``final_output.csv``.
+    - ``n_pass_intensity`` -- rows passing step 1.
+    - ``n_pass_separation`` -- rows passing steps 1 *and* 2.
+    - ``n_selected`` -- picks written.
+    - ``dropped`` -- rows removed by each step (see above for how the
+      ``current_split`` and ``diversity`` counts are limited).
+    - ``selected`` -- one entry per pick: ``rank``, ``montage``, ``pairs``
+      (channels as ``[plus, minus]``), the ROI/GM metrics,
+      ``min_separation_mm`` (closest electrodes of different channels) and
+      ``min_within_channel_mm`` (closest plus/minus pair within one channel;
+      reported, never filtered on).  ``Composite_Index`` here is recomputed as
+      ``TImean_ROI * Focality`` from the rounded CSV values, so it can differ
+      from the CSV's value in the last decimal places.
 ``top_montages_scatter.png``
     The intensity/focality scatter with the picks called out.
 ``top_montages_map.pdf``
-    One page per pick: that montage alone drawn on the electrode cap.
+    One page per pick: that montage alone drawn on the electrode cap.  Skipped
+    when no cap file resolved.
 
 Public API
 ----------
@@ -43,12 +81,16 @@ electrode_positions_for_run
 min_cross_channel_separation
     Smallest distance between two electrodes of different channels
     (grouped with :func:`tit.opt.ex.buckets.electrode_pairs`).
+min_within_channel_separation
+    Smallest plus-to-minus distance within one channel.
 select_top_montages
-    Apply the three rules to ``final_output.csv`` records.
+    Apply the selection steps to ``final_output.csv`` records.
 write_top_montages
-    Write the three artifacts.
+    Write the four output files.
 rank_run
     One call: resolve, select, write.
+main
+    Command-line entry point.
 
 Also runnable::
 
@@ -74,17 +116,24 @@ from .results import montage_score_records_from_csv
 from .symmetry import net_name_from_leadfield
 
 DEFAULT_MIN_INTENSITY = 0.6
-"""V/m floor on ``TImean_ROI``; below this a montage is not worth running."""
+"""Default V/m floor on ``TImean_ROI``.
 
-DEFAULT_MIN_SEPARATION_MM = 20.0
+A configurable starting point, not a validated threshold.  ``TImean_ROI``
+scales with the total injected current, so choose the floor with the search's
+current in mind (``--min-intensity``).
+"""
+
+DEFAULT_MIN_SEPARATION_MM = 25.0
 """Minimum centre-to-centre distance between electrodes of different channels.
 
-On GSN-HydroCel-256 the median nearest-neighbour spacing is ~17 mm in subject
-space and ~18.5 mm on the MNI template, so a 20 mm cutoff excludes a median of
-two to four neighbours per electrode, depending on the cap -- the closest part
-of the first ring, not all of it.  The full ring reaches ~24 mm, so 25 mm
-excludes every immediate neighbour and 35 mm starts on the second ring; both are
-available through ``--min-separation-mm`` when a stricter run is wanted.
+A configurable default, not a validated tolerability limit.  Distances are
+between electrode centres, so the edge-to-edge gap also depends on the size of
+the electrodes actually used.  On GSN-HydroCel-256 the median nearest-neighbour spacing is ~17 mm in subject
+space and ~18.5 mm on the MNI template, and the full first ring reaches ~24 mm,
+so a 25 mm cutoff excludes every immediate neighbour.  20 mm excludes only the
+closest part of the first ring (a median of two to four neighbours per
+electrode, depending on the cap) and 35 mm starts on the second ring; both are
+available through ``--min-separation-mm``.
 """
 
 DEFAULT_TOP_N = 5
@@ -231,7 +280,7 @@ def min_cross_channel_separation(
     caller separates those two cases -- a single channel has no constraint to
     violate, an unmeasurable distance is never treated as a pass.
 
-    Straight-line rather than geodesic: at 20 mm on a head of radius ~90 mm the
+    Straight-line rather than geodesic: at 25 mm on a head of radius ~90 mm the
     chord is within 1% of the arc, and no scalp surface is needed.
     """
     if len(pairs) < 2:
@@ -289,7 +338,7 @@ def select_top_montages(
     collapse_current_splits: bool = True,
     min_distinct_electrodes: int | None = None,
 ) -> dict:
-    """Apply the three selection rules to a ``final_output.csv``.
+    """Apply the selection steps (see the module docstring) to a ``final_output.csv``.
 
     Parameters
     ----------
@@ -301,7 +350,7 @@ def select_top_montages(
         rule, which is then reported as not applied rather than as passed.
     min_intensity : float, default 0.6
         Inclusive ``TImean_ROI`` floor in V/m.
-    min_separation_mm : float, default 20.0
+    min_separation_mm : float, default 25.0
         Inclusive minimum cross-channel electrode distance.
     top_n : int, default 5
         How many montages to select.  Fewer are returned when fewer qualify.
@@ -316,9 +365,11 @@ def select_top_montages(
     Returns
     -------
     dict
-        ``selected`` (the picks, best first), ``dropped`` (counts per filter),
-        ``points`` (every evaluation, for the scatter), ``columns`` (the source
-        file's column order) and the run-level counts.
+        ``selected`` (the picks, best first), ``dropped`` (counts per step;
+        ``current_split`` and ``diversity`` count only the rows examined
+        before ``top_n`` picks were made), ``points`` (every evaluation, for
+        the scatter), ``columns`` (the source file's column order) and the
+        run-level counts.
     """
     records = montage_score_records_from_csv(csv_path)
     columns = list(records[0]["row"].keys()) if records else []
@@ -485,7 +536,7 @@ def write_top_montages(
     logger: Any,
     cap_path: Path | None = None,
 ) -> list[str]:
-    """Write ``top_montages.{csv,json}``, the scatter and the per-montage maps.
+    """Write the four output files: ``top_montages.{csv,json}``, the scatter and the maps.
 
     The CSV is skipped when nothing qualified -- an empty table is a worse
     signal than its absence, and ``top_montages.json`` says why in either case.
@@ -577,9 +628,30 @@ def rank_run(
 ) -> dict:
     """Select and write the top montages of an ex-/m-ex-search run.
 
-    Returns the :func:`select_top_montages` result with the written file paths
-    added under ``"paths"`` and the coordinate source under
-    ``"positions_source"``.
+    Parameters
+    ----------
+    run_dir : str or Path
+        Run directory holding ``final_output.csv`` (and normally
+        ``run_config.json``, used to find the electrode cap).
+    eeg_csv : str or Path, optional
+        Cap file to measure distances on; inferred from the run when omitted
+        (see :func:`electrode_positions_for_run`).
+    min_intensity, min_separation_mm, top_n, collapse_current_splits, min_distinct_electrodes
+        Passed to :func:`select_top_montages`.
+    logger : logging.Logger, optional
+        Defaults to this module's logger.
+
+    Returns
+    -------
+    dict
+        The :func:`select_top_montages` result, plus ``"paths"`` (files
+        written) and ``"positions_source"`` (where the coordinates came from).
+
+    Raises
+    ------
+    FileNotFoundError
+        If *run_dir* has no ``final_output.csv``, or *eeg_csv* is given and
+        does not exist.
     """
     logger = logger or logging.getLogger(__name__)
     run_dir = Path(run_dir)

@@ -83,10 +83,10 @@ def _write_csv(path: Path, rows) -> Path:
 # ── separation ───────────────────────────────────────────────────────────────
 
 
-def test_the_shipped_default_separation_is_20mm():
+def test_the_shipped_default_separation_is_25mm():
     # The wiki quotes this number and argues for it from the cap's neighbour
     # spacing; changing it is a decision, not a tweak.
-    assert DEFAULT_MIN_SEPARATION_MM == 20.0
+    assert DEFAULT_MIN_SEPARATION_MM == 25.0
 
 
 def test_electrode_pairs_groups_consecutive_labels():

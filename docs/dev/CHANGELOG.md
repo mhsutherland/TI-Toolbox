@@ -9,13 +9,13 @@ Detailed technical changelog for all versions of the Temporal Interference Toolb
 ---
 ### Unreleased
 
-- **Ex-search and mEx-search name their own best montages.** Each run now writes
+- **Ex-search and mEx-search write a ranked shortlist of montages.** Each run now writes
   `top_montages.csv`, `top_montages.json`, `top_montages_scatter.png` and a `top_montages_map.pdf`
   that draws each pick on the electrode cap on its own page, beside `final_output.csv`:
-  the five montages that clear `TImean_ROI >= 0.6` V/m, ranked by focality, with any montage whose
-  channels share neighbouring electrodes (closer than 20 mm on the cap) rejected — adjacent
-  energised electrodes cap the current a participant will tolerate. Fewer than five are written
-  when fewer qualify, and the JSON records what each filter removed. Existing runs, and other
+  up to five montages with `TImean_ROI >= 0.6` V/m, ranked by focality, with any montage whose
+  channels put electrodes closer than 25 mm on the cap rejected, to avoid energising neighbouring
+  electrodes. Both thresholds are configurable defaults, not validated limits. Fewer than five are
+  written when fewer qualify, and the JSON records what each step removed. Existing runs, and other
   thresholds, via
   `simnibs_python -m tit.opt.ex.ranking <run_dir> [--min-intensity ...] [--min-separation-mm ...]`.
   See [Choosing a montage]({{ site.baseurl }}/wiki/ex-search/#choosing-a-montage).
